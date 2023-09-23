@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "bitum"
+version = "0.0.1"
+description = "Back up many small files to the cloud, faster"
+authors = ["Malthe Jørgensen <malthe.jorgensen@gmail.com>"]
+license = "BSD-2-Clause"
+
+[tool.poetry.dependencies]
+python = "^3.7"
+
+[tool.poetry.dev-dependencies]
+pytest = "^6.2.5"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.0.291"
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
+
+[tool.poetry.scripts]
+bitum = 'bitum.cli:entry'
+
+[tool.ruff]
+line-length = 120
