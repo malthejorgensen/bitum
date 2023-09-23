@@ -7,7 +7,7 @@ import sqlite3
 import time
 from collections import namedtuple
 
-from utils import pp_file_size
+from utils import pp_file_size, print_tree_diff
 
 '''
 bitum
@@ -217,6 +217,50 @@ def build(args):
         con.close()
 
 
+def check(args):
+    re_exclude = re.compile(args.exclude) if args.exclude else None
+
+    ###################
+    # Build file list #
+    ###################
+    with TimedMessage('Building file list from disk...'):
+        set_tree_disk, tree_disk = build_dirtree(
+            args.dir,
+            return_sizes=not args.skip_sizes,
+            return_perms=not args.skip_perms,
+            return_hashes=not args.skip_hashes,
+            exclude_pattern=re_exclude,
+        )
+
+    with TimedMessage('Building file list from backup...'):
+        set_tree_backup = set()
+        tree_backup = {}
+        con = sqlite3.connect(DATABASE_FILENAME)
+        cur = con.cursor()
+        cur.execute(
+            'SELECT bucket, file_path, byte_index, file_size, file_hash, file_perms FROM files'
+        )
+        rows = cur.fetchall()
+        con.close()
+        for bucket, file_path, byte_index, file_size, file_hash, file_perms in rows:
+            file_props = {
+                # fmt: off
+                'file_type': 'F',
+                'file_hash': file_hash if not args.skip_hashes else None,
+                'file_size': file_size if not args.skip_sizes else None, # and entry_type == 'F'
+                'file_perms': file_perms if not args.skip_perms else None,
+                # fmt: on
+            }
+            dir_entry = DirEntry(
+                file_path=file_path,
+                **file_props,
+            )
+            set_tree_backup.add(dir_entry)
+            tree_backup[file_path] = DirEntryProps(**file_props)
+
+    print_tree_diff(args, set_tree_disk, tree_disk, set_tree_backup, tree_backup)
+
+
 def entry():
     argparser = argparse.ArgumentParser(
         description='Quickly send your files to cloud storage'
@@ -231,7 +275,9 @@ def entry():
         help='Only list number of files in buckets. Do not build .bitum-files.',
     )
 
-    for cmd in [build_cmd]:
+    check_cmd = subparsers.add_parser('check')
+
+    for cmd in [build_cmd, check_cmd]:
         # fmt: off
         cmd.add_argument('dir')
         cmd.add_argument('-s', '--skip-sizes', action='store_true', help='Don\'t store and check file sizes -- this means only checking whether each file exists')
@@ -249,6 +295,8 @@ def entry():
 
     if args.command == 'build':
         build(args)
+    elif args.command == 'check':
+        check(args)
     else:
         print(f'Unknown command {args.command}')
         exit(1)
