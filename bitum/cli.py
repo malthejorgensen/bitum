@@ -5,7 +5,7 @@ import os
 import re
 import sqlite3
 import time
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 
 from utils import pp_file_size, print_tree_diff
 
@@ -217,6 +217,58 @@ def build(args):
         con.close()
 
 
+def extract(args):
+    ###################
+    # Build file list #
+    ###################
+    buckets = defaultdict(list)
+    with TimedMessage('Building file list from backup...'):
+        # set_tree_backup = set()
+        # tree_backup = {}
+        con = sqlite3.connect(DATABASE_FILENAME)
+        cur = con.cursor()
+        cur.execute(
+            'SELECT bucket, file_path, byte_index, file_size, file_hash, file_perms FROM files ORDER BY bucket ASC, byte_index ASC'
+        )
+        rows = cur.fetchall()
+        con.close()
+        for (
+            bucket_name,
+            file_path,
+            byte_index,
+            file_size,
+            file_hash,
+            file_perms,
+        ) in rows:
+            buckets[bucket_name].append((byte_index, file_path, file_size))
+
+    with TimedMessage('Extracting buckets...'):
+        print()
+        # for (file_path, file_type, file_hash, file_size, file_perms) in set_tree1:
+        for bucket_name, files in buckets.items():
+            progress_str = ''
+            bytes_written = 0
+            current_seek = 0
+            with open(f'{bucket_name}.bitumen', 'rb') as f_bitumen:
+                for i, (byte_index, file_path, file_size) in enumerate(files):
+                    if current_seek != byte_index:
+                        breakpoint()
+
+                    if i % 1000 == 0:
+                        progress_str = f'{i}/{len(files)}\r'
+                        print(progress_str, end='', flush=True)
+
+                    # `file_props.file_path` starts with a `/`. When `os.path.join()`
+                    # sees this, it ignores all preceding arguments and just starts the
+                    # path there, which is not what we want.
+                    with open(os.path.join(args.dir, file_path[1:]), 'wb') as f_output:
+                        current_seek += file_size
+                        bytes_written += f_output.write(f_bitumen.read(file_size))
+
+            print(' ' * len(progress_str) + '\r', end='', flush=True)
+        print()
+
+
 def check(args):
     re_exclude = re.compile(args.exclude) if args.exclude else None
 
@@ -275,6 +327,8 @@ def entry():
         help='Only list number of files in buckets. Do not build .bitum-files.',
     )
 
+    extract_cmd = subparsers.add_parser('extract')
+    extract_cmd.add_argument('dir')
     check_cmd = subparsers.add_parser('check')
 
     for cmd in [build_cmd, check_cmd]:
@@ -297,6 +351,8 @@ def entry():
         build(args)
     elif args.command == 'check':
         check(args)
+    elif args.command == 'extract':
+        extract(args)
     else:
         print(f'Unknown command {args.command}')
         exit(1)
