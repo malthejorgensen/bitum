@@ -324,7 +324,7 @@ def entry():
     build_cmd.add_argument(
         '--dry-run',
         action='store_true',
-        help='Only list number of files in buckets. Do not build .bitum-files.',
+        help='Only list number of files in buckets. Do not build .bitumen-files.',
     )
 
     extract_cmd = subparsers.add_parser('extract')
