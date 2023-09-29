@@ -1,11 +1,15 @@
 #!/usr/bin/env python
 import argparse
+import configparser
 import hashlib
 import os
 import re
 import sqlite3
 import time
 from collections import defaultdict, namedtuple
+
+import boto3
+from tqdm import tqdm
 
 from utils import pp_file_size, print_tree_diff
 
@@ -24,6 +28,7 @@ It works like this:
 3. Write to database (e.g. SQLite) where each file is stored along with metadata (modified date, MD5/SHA256)
 '''
 
+CONFIG_PATH = '~/.config/bitum/config.ini'
 DATABASE_FILENAME = 'bitumen.sqlite3'
 
 
@@ -217,6 +222,98 @@ def build(args):
         con.close()
 
 
+def get_s3_client(endpoint_url=None):
+    config = configparser.ConfigParser()
+    config.read(os.path.expanduser(CONFIG_PATH))
+
+    if not endpoint_url and not config['default'].get('endpoint_url'):
+        print(
+            f'Must pass either `--endpoint-url` or set `endpoint_url` in {CONFIG_PATH}'
+        )
+        exit(1)
+
+    session = boto3.session.Session(
+        aws_access_key_id=config['default']['access_key_id'],
+        aws_secret_access_key=config['default']['secret_access_key'],
+        region_name=config['default'].get('region_name', None),
+        profile_name=config['default'].get('profile_name', None),
+    )
+    s3_client = session.client(
+        's3',
+        endpoint_url=endpoint_url or config['default']['endpoint_url'],
+    )
+
+    return s3_client
+
+
+def upload_all(args):
+    s3_client = get_s3_client(args.endpoint_url)
+
+    prefix = args.prefix
+    if prefix and not prefix.endswith('/'):
+        prefix = f'{prefix}/'
+
+    files = []
+    for bucket_name, _, _, _ in BUCKETS:
+        filename = f'{bucket_name}.bitumen'
+        files.append(filename)
+
+    if args.include_db:
+        files.append(DATABASE_FILENAME)
+
+    for filename in files:
+        total_bytes = os.stat(filename).st_size
+        s3_path = f'{prefix}{filename}'
+
+        # FROM: https://stackoverflow.com/a/70263266
+        with open(filename, 'rb') as f_bitumen:
+            with tqdm(
+                total=total_bytes,
+                desc=f'source: s3://{args.bucket}/{s3_path}',
+                bar_format="{percentage:.1f}%|{bar:25} | {rate_fmt} | {desc}",
+                unit='B',
+                unit_scale=True,
+                unit_divisor=1024,
+            ) as pbar:
+                s3_client.upload_fileobj(
+                    f_bitumen, args.bucket, s3_path, Callback=pbar.update
+                )
+
+
+def download_all(args):
+    s3_client = get_s3_client(args.endpoint_url)
+
+    prefix = args.prefix
+    if prefix and not prefix.endswith('/'):
+        prefix = f'{prefix}/'
+
+    files = []
+    for bucket_name, _, _, _ in BUCKETS:
+        filename = f'{bucket_name}.bitumen'
+        files.append(filename)
+
+    if args.include_db:
+        files.append(DATABASE_FILENAME)
+
+    for filename in files:
+        s3_path = f'{prefix}{filename}'
+
+        meta_data = s3_client.head_object(Bucket=args.bucket, Key=s3_path)
+        total_bytes = int(meta_data.get('ContentLength', 0))
+        with tqdm(
+            total=total_bytes,
+            desc=f'source: s3://{args.bucket}/{s3_path}',
+            bar_format="{percentage:.1f}%|{bar:25} | {rate_fmt} | {desc}",
+            unit='B',
+            unit_scale=True,
+            unit_divisor=1024,
+        ) as pbar:
+            with open(filename, 'wb') as f_bitumen:
+                s3_client.download_fileobj(
+                    args.bucket, s3_path, f_bitumen, Callback=pbar.update
+                )
+
+
 def extract(args):
     ###################
     # Build file list #
@@ -327,6 +424,37 @@ def entry():
         help='Only list number of files in buckets. Do not build .bitumen-files.',
     )
 
+    upload_all_cmd = subparsers.add_parser(
+        'upload-all', description='Upload all .bitumen-files in the current folder'
+    )
+    download_all_cmd = subparsers.add_parser(
+        'download-all',
+        description='Download all .bitumen-files at the given prefix in the bucket, or at the root if no prefix is given',
+    )
+    for cmd in [upload_all_cmd, download_all_cmd]:
+        cmd.add_argument(
+            '--bucket',
+            required=True,
+            type=str,
+            help='S3-compatible bucket to upload to',
+        )
+        cmd.add_argument(
+            '--prefix',
+            type=str,
+            help='Prefix inside the bucket to upload or download the files from to',
+            default='',
+        )
+        cmd.add_argument(
+            '--endpoint-url',
+            type=str,
+            help='S3-compatible endpoint URL (e.g. Backblaze "s3.eu-central-003.backblazeb2.com")',
+        )
+        cmd.add_argument(
+            '--include-db',
+            action='store_true',
+            help=f'Include file-database ({DATABASE_FILENAME})',
+        )
+
     extract_cmd = subparsers.add_parser('extract')
     extract_cmd.add_argument('dir')
     check_cmd = subparsers.add_parser('check')
@@ -349,6 +477,10 @@ def entry():
 
     if args.command == 'build':
         build(args)
+    elif args.command == 'upload-all':
+        upload_all(args)
+    elif args.command == 'download-all':
+        download_all(args)
     elif args.command == 'check':
         check(args)
     elif args.command == 'extract':
