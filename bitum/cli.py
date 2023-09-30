@@ -53,13 +53,14 @@ def file_hash(path, hash_func=hashlib.blake2b, block_size=8192):
     # return hash_sum.digest()
 
 
-def build_dirtree(
+def dirtree_from_disk(
     base_path,
     return_hashes=False,
     return_sizes=False,
     return_perms=False,
     exclude_pattern=None,
 ):
+    # type: (str, bool, bool, bool, re.Pattern | None) -> tuple[set[DirEntry], dict[str, DirEntryProps]]
     '''Build a `set` of tuples for each file under the given filepath
 
     The tuples are of the form
@@ -143,7 +144,7 @@ def build(args):
     # Build file list #
     ###################
     with TimedMessage('Building file list...'):
-        set_tree1, tree1 = build_dirtree(
+        set_tree1, tree1 = dirtree_from_disk(
             args.dir,
             return_sizes=not args.skip_sizes,
             return_perms=not args.skip_perms,
@@ -373,7 +374,7 @@ def check(args):
     # Build file list #
     ###################
     with TimedMessage('Building file list from disk...'):
-        set_tree_disk, tree_disk = build_dirtree(
+        set_tree_disk, tree_disk = dirtree_from_disk(
             args.dir,
             return_sizes=not args.skip_sizes,
             return_perms=not args.skip_perms,
