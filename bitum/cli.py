@@ -229,9 +229,9 @@ def build(args):
                         print(progress_str, end='', flush=True)
                     # `file_props.file_path` starts with a `/`. When `os.path.join()`
                     # sees this, it ignores all preceding arguments and just starts the
-                    # path there, which is not what we want.
+                    # path there, which is not what we want. Therefore the `.lstrip()`.
                     with open(
-                        os.path.join(args.dir, file_props.file_path[1:]), 'rb'
+                        os.path.join(args.dir, file_props.file_path.lstrip('/')), 'rb'
                     ) as f_input:
                         db_entries.append(
                             (
