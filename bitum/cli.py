@@ -417,17 +417,24 @@ def entry():
     subparsers = argparser.add_subparsers(
         title='command', dest='command', required=True
     )
-    build_cmd = subparsers.add_parser('build')
+
+    debug_cmd = subparsers.add_parser(
+        'debug',
+        description='Access debug commands',
+    )
+    debug_subcommands = debug_cmd.add_subparsers(
+        title='debug_command', dest='debug_command', required=True
+    )
+    build_cmd = debug_subcommands.add_parser('build')
     build_cmd.add_argument(
         '--dry-run',
         action='store_true',
         help='Only list number of files in buckets. Do not build .bitumen-files.',
     )
-
-    upload_all_cmd = subparsers.add_parser(
+    upload_all_cmd = debug_subcommands.add_parser(
         'upload-all', description='Upload all .bitumen-files in the current folder'
     )
-    download_all_cmd = subparsers.add_parser(
+    download_all_cmd = debug_subcommands.add_parser(
         'download-all',
         description='Download all .bitumen-files at the given prefix in the bucket, or at the root if no prefix is given',
     )
@@ -475,12 +482,16 @@ def entry():
         print(f'"{args.dir}" does not exist')
         return
 
-    if args.command == 'build':
-        build(args)
-    elif args.command == 'upload-all':
-        upload_all(args)
-    elif args.command == 'download-all':
-        download_all(args)
+    if args.command == 'debug':
+        if args.debug_command == 'build':
+            build(args)
+        elif args.debug_command == 'upload-all':
+            upload_all(args)
+        elif args.debug_command == 'download-all':
+            download_all(args)
+        else:
+            print(f'Unknown debug subcommand {args.debug_command}')
+            exit(1)
     elif args.command == 'check':
         check(args)
     elif args.command == 'extract':
