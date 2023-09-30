@@ -106,6 +106,42 @@ def dirtree_from_disk(
     return set_dirtree, tree
 
 
+def dirtree_from_db(
+    db_filepath,
+    return_hashes=False,
+    return_sizes=False,
+    return_perms=False,
+):
+    # type: (str, bool, bool, bool) -> tuple[set[DirEntry], dict[str, DirEntryProps]]
+    with TimedMessage('Building file list from backup...'):
+        set_tree_backup = set()
+        tree_backup = {}
+        con = sqlite3.connect(db_filepath)
+        cur = con.cursor()
+        cur.execute(
+            'SELECT bucket, file_path, byte_index, file_size, file_hash, file_perms FROM files'
+        )
+        rows = cur.fetchall()
+        con.close()
+        for bucket, file_path, byte_index, file_size, file_hash, file_perms in rows:
+            file_props = {
+                # fmt: off
+                'file_type': 'F',
+                'file_hash': file_hash if return_hashes else None,
+                'file_size': file_size if return_sizes else None, # and entry_type == 'F'
+                'file_perms': file_perms if return_perms else None,
+                # fmt: on
+            }
+            dir_entry = DirEntry(
+                file_path=file_path,
+                **file_props,
+            )
+            set_tree_backup.add(dir_entry)
+            tree_backup[file_path] = DirEntryProps(**file_props)
+
+    return set_tree_backup, tree_backup
+
+
 BUCKETS = [
     ('256 bytes', 256, [], [0]),
     ('1 KiB', 1024, [], [0]),
@@ -382,31 +418,12 @@ def check(args):
             exclude_pattern=re_exclude,
         )
 
-    with TimedMessage('Building file list from backup...'):
-        set_tree_backup = set()
-        tree_backup = {}
-        con = sqlite3.connect(DATABASE_FILENAME)
-        cur = con.cursor()
-        cur.execute(
-            'SELECT bucket, file_path, byte_index, file_size, file_hash, file_perms FROM files'
-        )
-        rows = cur.fetchall()
-        con.close()
-        for bucket, file_path, byte_index, file_size, file_hash, file_perms in rows:
-            file_props = {
-                # fmt: off
-                'file_type': 'F',
-                'file_hash': file_hash if not args.skip_hashes else None,
-                'file_size': file_size if not args.skip_sizes else None, # and entry_type == 'F'
-                'file_perms': file_perms if not args.skip_perms else None,
-                # fmt: on
-            }
-            dir_entry = DirEntry(
-                file_path=file_path,
-                **file_props,
-            )
-            set_tree_backup.add(dir_entry)
-            tree_backup[file_path] = DirEntryProps(**file_props)
+    set_tree_backup, tree_backup = dirtree_from_db(
+        DATABASE_FILENAME,
+        return_sizes=not args.skip_sizes,
+        return_perms=not args.skip_perms,
+        return_hashes=not args.skip_hashes,
+    )
 
     print_tree_diff(args, set_tree_disk, tree_disk, set_tree_backup, tree_backup)
 
