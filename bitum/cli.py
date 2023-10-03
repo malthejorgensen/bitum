@@ -351,6 +351,138 @@ def download_all(args):
                 )
 
 
+def download_backup_file(args, db_filepath, filepath):
+    # type: (None, str, str) -> None
+    s3_client = get_s3_client(args.endpoint_url)
+
+    prefix = args.prefix
+    if prefix and not prefix.endswith('/'):
+        prefix = f'{prefix}/'
+
+    con = sqlite3.connect(db_filepath)
+    con.row_factory = sqlite3.Row  # Allow accessing results by column name
+    cur = con.cursor()
+    cur.execute(
+        'SELECT bucket, file_path, byte_index, file_size, file_hash, file_perms FROM files WHERE file_path = ?',
+        [filepath],
+    )
+    row = cur.fetchone()
+    con.close()
+
+    # All methods below are from: https://stackoverflow.com/questions/30075978/reading-part-of-a-file-in-s3-using-boto
+    # Method 1:
+    #
+    #     obj = boto3.resource('s3').Object('mybucket', 'mykey')
+    #     stream = obj.get(Range='bytes=32-64')['Body']
+    #     print(stream.read())
+    #
+    # Method 2:
+    #
+    #     s3 = boto.connect_s3()
+    #     bucket = s3.lookup('mybucket')
+    #     key = bucket.lookup('mykey')
+    #     your_bytes = key.get_contents_as_string(headers={'Range': 'bytes=73-1024'})
+    #
+    # Method 3:
+    byte_start = row['byte_index']
+    byte_end = row['file_size'] - 1
+    bytes_range = f'bytes={byte_start}-{byte_end}'
+    s3_path = f'{prefix}{row["bucket"]}.bitumen'
+
+    # `filepath` can start with a `/`. When `os.path.join()`
+    # sees this, it ignores all preceding arguments and just starts the
+    # path there, which is not what we want. Therefore the `.lstrip()`.
+    with open(os.path.join(args.dir, filepath.lstrip('/')), 'wb') as f_disk:
+        response = s3_client.get_object(
+            Bucket=args.bucket, Key=s3_path, Range=bytes_range
+        )
+        body = response['Body']
+        # The simplest solution can incur large memory usage for multi GiB-files:
+        #
+        #     f_disk.write(body.read())
+        #
+        # Instead we do a chunked read and write:
+        while True:
+            data = body.read(2 ** 14)  # Read 16 KiB
+            if not data:
+                break
+            f_disk.write(data)
+
+
+def set_disk_file_perms(args, db_filepath, filepath):
+    # type: (None, str, str) -> None
+
+    con = sqlite3.connect(db_filepath)
+    con.row_factory = sqlite3.Row  # Allow accessing results by column name
+    cur = con.cursor()
+    cur.execute(
+        'SELECT bucket, file_path, byte_index, file_size, file_hash, file_perms FROM files WHERE file_path = ?',
+        [filepath],
+    )
+    row = cur.fetchone()
+    con.close()
+
+    disk_filepath = os.path.join(args.dir, filepath.lstrip('/'))
+    os.chmod(disk_filepath, row['file_perms'])
+
+
+def download(args):
+    s3_client = get_s3_client(args.endpoint_url)
+
+    prefix = args.prefix
+    if prefix and not prefix.endswith('/'):
+        prefix = f'{prefix}/'
+
+    s3_db_filepath = f'{prefix}{DATABASE_FILENAME}'
+
+    db_filepath = DATABASE_FILENAME
+    with open(db_filepath, 'wb') as f_db:
+        s3_client.download_fileobj(args.bucket, s3_db_filepath, f_db)
+
+    set_tree_disk, tree_disk = dirtree_from_disk(
+        args.dir,
+        return_sizes=True,  # not args.skip_sizes,
+        return_perms=True,  # not args.skip_perms,
+        return_hashes=True,  # not args.skip_hashes,
+        # exclude_pattern=args.re_exclude,
+    )
+    set_tree_backup, tree_backup = dirtree_from_db(
+        db_filepath,
+        return_sizes=True,  # not args.skip_sizes,
+        return_perms=True,  # not args.skip_perms,
+        return_hashes=True,  # not args.skip_hashes,
+    )
+
+    diff = set_tree_disk - set_tree_backup
+
+    visited = set()
+    for dir_entry in sorted(
+        diff,
+        key=lambda e: e.file_path + '/' if e.file_type == 'D' else e.file_path,
+    ):
+        path = dir_entry.file_path
+        if path in visited:
+            continue
+        else:
+            visited.add(path)
+
+        if path in tree_disk and path not in tree_backup:
+            # remove_disk_file()
+            pass
+        if path not in tree_disk and path in tree_backup:
+            download_backup_file(args, db_filepath, path)
+        elif tree_disk[path].file_size != tree_backup[path].file_size:
+            download_backup_file(args, db_filepath, path)
+        elif tree_disk[path].file_hash != tree_backup[path].file_hash:
+            download_backup_file(args, db_filepath, path)
+        elif tree_disk[path].file_perms != tree_backup[path].file_perms:
+            # Always change file perms (see below)
+            pass
+
+        # Always change file perms
+        set_disk_file_perms(args, db_filepath, path)
+
+
 def extract(args):
     ###################
     # Build file list #
@@ -436,6 +568,17 @@ def entry():
         title='command', dest='command', required=True
     )
 
+    download_cmd = subparsers.add_parser(
+        'download',
+        description='Download changed files from the bucket (overwrite local files)',
+    )
+    for cmd in [download_cmd]:
+        cmd.add_argument(
+            'dir',
+            type=str,
+            help='Which local directory to upload/download files from/to',
+        )
+
     debug_cmd = subparsers.add_parser(
         'debug',
         description='Access debug commands',
@@ -458,6 +601,13 @@ def entry():
     )
     for cmd in [upload_all_cmd, download_all_cmd]:
         cmd.add_argument(
+            '--include-db',
+            action='store_true',
+            help=f'Include file-database ({DATABASE_FILENAME})',
+        )
+
+    for cmd in [download_cmd, upload_all_cmd, download_all_cmd]:
+        cmd.add_argument(
             '--bucket',
             required=True,
             type=str,
@@ -473,11 +623,6 @@ def entry():
             '--endpoint-url',
             type=str,
             help='S3-compatible endpoint URL (e.g. Backblaze "s3.eu-central-003.backblazeb2.com")',
-        )
-        cmd.add_argument(
-            '--include-db',
-            action='store_true',
-            help=f'Include file-database ({DATABASE_FILENAME})',
         )
 
     extract_cmd = subparsers.add_parser('extract')
@@ -510,6 +655,8 @@ def entry():
         else:
             print(f'Unknown debug subcommand {args.debug_command}')
             exit(1)
+    elif args.command == 'download':
+        download(args)
     elif args.command == 'check':
         check(args)
     elif args.command == 'extract':
