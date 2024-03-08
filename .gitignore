@@ -1,2 +1,5 @@
 __pycache__
 /dist
+
+# This files that this tool outputs (and uploads)
+*.bitumen
