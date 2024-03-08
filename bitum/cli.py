@@ -546,7 +546,7 @@ def extract(args):
         print()
 
 
-def check(args):
+def diff_local(args):
     re_exclude = re.compile(args.exclude) if args.exclude else None
 
     ###################
@@ -603,6 +603,9 @@ def entry():
         action='store_true',
         help='Only list number of files in buckets. Do not build .bitumen-files.',
     )
+    diff_local_cmd = debug_subcommands.add_parser(
+        'diff-local', help=f'Diff tree in local {DATABASE_FILENAME} against local files'
+    )
     upload_all_cmd = debug_subcommands.add_parser(
         'upload-all', description='Upload all .bitumen-files in the current folder'
     )
@@ -638,9 +641,8 @@ def entry():
 
     extract_cmd = subparsers.add_parser('extract')
     extract_cmd.add_argument('dir')
-    check_cmd = subparsers.add_parser('check')
 
-    for cmd in [build_cmd, check_cmd]:
+    for cmd in [build_cmd, diff_local_cmd]:
         # fmt: off
         cmd.add_argument('dir')
         cmd.add_argument('-s', '--skip-sizes', action='store_true', help='Don\'t store and check file sizes -- this means only checking whether each file exists')
@@ -659,6 +661,8 @@ def entry():
     if args.command == 'debug':
         if args.debug_command == 'build':
             build(args)
+        elif args.debug_command == 'diff-local':
+            diff_local(args)
         elif args.debug_command == 'upload-all':
             upload_all(args)
         elif args.debug_command == 'download-all':
@@ -669,8 +673,6 @@ def entry():
     elif args.command == 'download':
         with tempfile.TemporaryDirectory('wb') as tempdir_path:
             download(args, tempdir_path)
-    elif args.command == 'check':
-        check(args)
     elif args.command == 'extract':
         extract(args)
     else:
