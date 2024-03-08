@@ -87,7 +87,18 @@ def dirtree_from_disk(
             if entry_type == 'D':
                 continue
 
-            stat = os.stat(abs_path)
+            try:
+                stat = os.stat(abs_path)
+            except FileNotFoundError:
+                # When symlink points to a directory or file that does not exist
+                continue
+            except OSError as err:
+                if err.errno == 62:
+                    # Too many levels of symlinking
+                    continue
+                else:
+                    raise
+
             file_props = {
                 'file_type': entry_type,
                 'file_hash': file_hash(abs_path) if return_hashes else None,
