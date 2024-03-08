@@ -5,6 +5,7 @@ import hashlib
 import os
 import re
 import sqlite3
+import tempfile
 import time
 from collections import defaultdict, namedtuple
 
@@ -426,7 +427,7 @@ def set_disk_file_perms(args, db_filepath, filepath):
     os.chmod(disk_filepath, row['file_perms'])
 
 
-def download(args):
+def download(args, tempdir_path):
     s3_client = get_s3_client(args.endpoint_url)
 
     prefix = args.prefix
@@ -434,8 +435,7 @@ def download(args):
         prefix = f'{prefix}/'
 
     s3_db_filepath = f'{prefix}{DATABASE_FILENAME}'
-
-    db_filepath = DATABASE_FILENAME
+    db_filepath = os.path.join(tempdir_path, DATABASE_FILENAME)
     with open(db_filepath, 'wb') as f_db:
         s3_client.download_fileobj(args.bucket, s3_db_filepath, f_db)
 
@@ -656,7 +656,8 @@ def entry():
             print(f'Unknown debug subcommand {args.debug_command}')
             exit(1)
     elif args.command == 'download':
-        download(args)
+        with tempfile.TemporaryDirectory('wb') as tempdir_path:
+            download(args, tempdir_path)
     elif args.command == 'check':
         check(args)
     elif args.command == 'extract':
