@@ -27,10 +27,16 @@ I think this is similar to `tarsnap`, but I don't actually know how `tarsnap` wo
 
 Developing
 ----------
-If you wnat to test `bitum` while developing run the following commands:
+If you want to test `bitum` while developing you can do:
+
+    python bitum/cli.py [...]
+
+
+Or you can run any of the following commands:
 
     poetry build
     pipx install --force .
+    bitum [...]
 
 
 Alternative names
