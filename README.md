@@ -44,4 +44,14 @@ Alternative names
 
 - bitumen / bitum
 - bucketeer / bkteer / bktier
-- tarsync
+- tarbox (Dropbox)
+- tars3n (S3)
+- tarz4n (Monkey-man)
+
+Related work
+------------
+
+- [tarsnap](https://github.com/Tarsnap/tarsnap)
+- [tarsync #1](https://github.com/zmedico/tarsync)
+- [tarsync #2](https://github.com/carlba/tarsync)
+
