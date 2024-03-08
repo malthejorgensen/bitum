@@ -70,10 +70,10 @@ def print_tree_diff(args, set_tree1, tree1, set_tree2, tree2):
 
     width = max(max(len(e.file_path) for e in diff), len(dir1))
     max_path_length = max(len(e.file_path) for e in diff)
-    if args.check_perms:
+    if not args.skip_perms:
         # Include permissions in width
         max_path_length += len(' (xxxxxxxxx)')
-    if args.check_hashes:
+    if not args.skip_hashes:
         # Include hash in width
         max_path_length += len(' (xxxxxx)')
     width = max(max_path_length, len(dir1))
