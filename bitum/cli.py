@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import argparse
+from collections import defaultdict, namedtuple
 import configparser
 import hashlib
 import os
@@ -7,14 +8,13 @@ import re
 import sqlite3
 import tempfile
 import time
-from collections import defaultdict, namedtuple
 
 import boto3
 from tqdm import tqdm
 
 from utils import pp_file_size, print_tree_diff
 
-'''
+"""
 bitum
 -----
 
@@ -27,7 +27,7 @@ It works like this:
    - possibly spaced out at equidistant parts (with padding in between)
 
 3. Write to database (e.g. SQLite) where each file is stored along with metadata (modified date, MD5/SHA256)
-'''
+"""
 
 CONFIG_PATH = '~/.config/bitum/config.ini'
 DATABASE_FILENAME = 'bitumen.sqlite3'
@@ -62,7 +62,7 @@ def dirtree_from_disk(
     exclude_pattern=None,
 ):
     # type: (str, bool, bool, bool, re.Pattern | None) -> tuple[set[DirEntry], dict[str, DirEntryProps]]
-    '''Build a `set` of tuples for each file under the given filepath
+    """Build a `set` of tuples for each file under the given filepath
 
     The tuples are of the form
 
@@ -71,7 +71,7 @@ def dirtree_from_disk(
     For directories `file_hash` is always `None`.
 
     From: github.com/malthejorgensen/difftree.
-    '''
+    """
     tree = dict()
     set_dirtree = set()
     for dirpath, dirnames, filenames in os.walk(base_path):
@@ -140,7 +140,9 @@ def dirtree_from_db(
                 # fmt: off
                 'file_type': 'F',
                 'file_hash': file_hash if return_hashes else None,
-                'file_size': file_size if return_sizes else None, # and entry_type == 'F'
+                'file_size': file_size
+                if return_sizes
+                else None,  # and entry_type == 'F'
                 'file_perms': file_perms if return_perms else None,
                 # fmt: on
             }
@@ -158,14 +160,14 @@ BUCKETS = [
     ('256 bytes', 256, [], [0]),
     ('1 KiB', 1024, [], [0]),
     ('4 KiB', 4096, [], [0]),
-    ('16 KiB', 2 ** 14, [], [0]),
-    ('64 KiB', 2 ** 16, [], [0]),
-    ('128 KiB', 2 ** 17, [], [0]),
-    ('256 KiB', 2 ** 18, [], [0]),
-    ('512 KiB', 2 ** 19, [], [0]),
-    ('1 MiB', 2 ** 20, [], [0]),
-    ('4 MiB', 2 ** 22, [], [0]),
-    ('rest', 2 ** 40, [], [0]),  # 1 TiB
+    ('16 KiB', 2**14, [], [0]),
+    ('64 KiB', 2**16, [], [0]),
+    ('128 KiB', 2**17, [], [0]),
+    ('256 KiB', 2**18, [], [0]),
+    ('512 KiB', 2**19, [], [0]),
+    ('1 MiB', 2**20, [], [0]),
+    ('4 MiB', 2**22, [], [0]),
+    ('rest', 2**40, [], [0]),  # 1 TiB
     # ('16 MiB', 2**24, []),
     # ('16 MiB', 2**24, []),
 ]
@@ -319,7 +321,7 @@ def upload_all(args):
             with tqdm(
                 total=total_bytes,
                 desc=f'source: s3://{args.bucket}/{s3_path}',
-                bar_format="{percentage:.1f}%|{bar:25} | {rate_fmt} | {desc}",
+                bar_format='{percentage:.1f}%|{bar:25} | {rate_fmt} | {desc}',
                 unit='B',
                 unit_scale=True,
                 unit_divisor=1024,
@@ -352,7 +354,7 @@ def download_all(args):
         with tqdm(
             total=total_bytes,
             desc=f'source: s3://{args.bucket}/{s3_path}',
-            bar_format="{percentage:.1f}%|{bar:25} | {rate_fmt} | {desc}",
+            bar_format='{percentage:.1f}%|{bar:25} | {rate_fmt} | {desc}',
             unit='B',
             unit_scale=True,
             unit_divisor=1024,
@@ -415,7 +417,7 @@ def download_backup_file(args, db_filepath, filepath):
         #
         # Instead we do a chunked read and write:
         while True:
-            data = body.read(2 ** 14)  # Read 16 KiB
+            data = body.read(2**14)  # Read 16 KiB
             if not data:
                 break
             f_disk.write(data)

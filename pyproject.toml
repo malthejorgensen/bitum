@@ -24,4 +24,11 @@ build-backend = "poetry.masonry.api"
 bitum = 'bitum.cli:entry'
 
 [tool.ruff]
-line-length = 120
+# line-length = 120
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+known-first-party = ["constants", "utils"]
