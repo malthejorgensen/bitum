@@ -307,8 +307,8 @@ def upload_all(args):
         filename = f'{bucket_name}.bitumen'
         files.append(filename)
 
-    if args.include_db:
-        files.append(DATABASE_FILENAME)
+    # Always download DB
+    files.append(DATABASE_FILENAME)
 
     for filename in files:
         total_bytes = os.stat(filename).st_size
@@ -341,8 +341,8 @@ def download_all(args):
         filename = f'{bucket_name}.bitumen'
         files.append(filename)
 
-    if args.include_db:
-        files.append(DATABASE_FILENAME)
+    # Always download DB
+    files.append(DATABASE_FILENAME)
 
     for filename in files:
         s3_path = f'{prefix}{filename}'
@@ -607,18 +607,15 @@ def entry():
         'diff-local', help=f'Diff tree in local {DATABASE_FILENAME} against local files'
     )
     upload_all_cmd = debug_subcommands.add_parser(
-        'upload-all', description='Upload all .bitumen-files in the current folder'
+        'upload-all',
+        description=f'Uploads all .bitumen-files in the current folder to the given prefix in the bucket as well as the database file ({DATABASE_FILENAME})',
     )
     download_all_cmd = debug_subcommands.add_parser(
         'download-all',
-        description='Download all .bitumen-files at the given prefix in the bucket, or at the root if no prefix is given',
+        description=f'Downloads all .bitumen-files at the given prefix in the bucket as well as the the database file ({DATABASE_FILENAME})',
     )
     for cmd in [upload_all_cmd, download_all_cmd]:
-        cmd.add_argument(
-            '--include-db',
-            action='store_true',
-            help=f'Include file-database ({DATABASE_FILENAME})',
-        )
+        pass
 
     for cmd in [download_cmd, upload_all_cmd, download_all_cmd]:
         cmd.add_argument(
