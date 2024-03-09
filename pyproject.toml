@@ -31,4 +31,4 @@ quote-style = "single"
 
 [tool.ruff.lint.isort]
 force-sort-within-sections = true
-known-first-party = ["constants", "utils"]
+known-first-party = ["constants", "debug_cli", "utils"]
