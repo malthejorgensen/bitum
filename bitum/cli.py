@@ -10,6 +10,7 @@ import time
 
 from tqdm import tqdm
 
+from constants import BUCKETS, DATABASE_FILENAME
 from utils import get_s3_client, pp_file_size, print_tree_diff
 
 """
@@ -26,9 +27,6 @@ It works like this:
 
 3. Write to database (e.g. SQLite) where each file is stored along with metadata (modified date, MD5/SHA256)
 """
-
-CONFIG_PATH = '~/.config/bitum/config.ini'
-DATABASE_FILENAME = 'bitumen.sqlite3'
 
 
 DirEntry = namedtuple(
@@ -152,23 +150,6 @@ def dirtree_from_db(
             tree_backup[file_path] = DirEntryProps(**file_props)
 
     return set_tree_backup, tree_backup
-
-
-BUCKETS = [
-    ('256 bytes', 256, [], [0]),
-    ('1 KiB', 1024, [], [0]),
-    ('4 KiB', 4096, [], [0]),
-    ('16 KiB', 2**14, [], [0]),
-    ('64 KiB', 2**16, [], [0]),
-    ('128 KiB', 2**17, [], [0]),
-    ('256 KiB', 2**18, [], [0]),
-    ('512 KiB', 2**19, [], [0]),
-    ('1 MiB', 2**20, [], [0]),
-    ('4 MiB', 2**22, [], [0]),
-    ('rest', 2**40, [], [0]),  # 1 TiB
-    # ('16 MiB', 2**24, []),
-    # ('16 MiB', 2**24, []),
-]
 
 
 class TimedMessage:
