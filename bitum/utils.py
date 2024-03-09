@@ -1,6 +1,35 @@
 from itertools import cycle
+import configparser
+import os
 import shutil
 import stat
+
+import boto3
+from constants import CONFIG_PATH
+
+
+def get_s3_client(endpoint_url=None):
+    config = configparser.ConfigParser()
+    config.read(os.path.expanduser(CONFIG_PATH))
+
+    if not endpoint_url and not config['default'].get('endpoint_url'):
+        print(
+            f'Must pass either `--endpoint-url` or set `endpoint_url` in {CONFIG_PATH}'
+        )
+        exit(1)
+
+    session = boto3.session.Session(
+        aws_access_key_id=config['default']['access_key_id'],
+        aws_secret_access_key=config['default']['secret_access_key'],
+        region_name=config['default'].get('region_name', None),
+        profile_name=config['default'].get('profile_name', None),
+    )
+    s3_client = session.client(
+        's3',
+        endpoint_url=endpoint_url or config['default']['endpoint_url'],
+    )
+
+    return s3_client
 
 
 def pp_file_size(size_bytes):

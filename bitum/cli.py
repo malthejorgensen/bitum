@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 import argparse
 from collections import defaultdict, namedtuple
-import configparser
 import hashlib
 import os
 import re
@@ -9,10 +8,9 @@ import sqlite3
 import tempfile
 import time
 
-import boto3
 from tqdm import tqdm
 
-from utils import pp_file_size, print_tree_diff
+from utils import get_s3_client, pp_file_size, print_tree_diff
 
 """
 bitum
@@ -271,30 +269,6 @@ def build(args):
         cur.executemany('INSERT INTO files VALUES(?, ?, ?, ?, ?, ?)', db_entries)
         con.commit()  # Remember to commit the transaction after executing INSERT.
         con.close()
-
-
-def get_s3_client(endpoint_url=None):
-    config = configparser.ConfigParser()
-    config.read(os.path.expanduser(CONFIG_PATH))
-
-    if not endpoint_url and not config['default'].get('endpoint_url'):
-        print(
-            f'Must pass either `--endpoint-url` or set `endpoint_url` in {CONFIG_PATH}'
-        )
-        exit(1)
-
-    session = boto3.session.Session(
-        aws_access_key_id=config['default']['access_key_id'],
-        aws_secret_access_key=config['default']['secret_access_key'],
-        region_name=config['default'].get('region_name', None),
-        profile_name=config['default'].get('profile_name', None),
-    )
-    s3_client = session.client(
-        's3',
-        endpoint_url=endpoint_url or config['default']['endpoint_url'],
-    )
-
-    return s3_client
 
 
 def upload_all(args):
