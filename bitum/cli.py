@@ -6,12 +6,11 @@ import os
 import re
 import sqlite3
 import tempfile
-import time
 
 from tqdm import tqdm
 
 from constants import BUCKETS, DATABASE_FILENAME
-from utils import get_s3_client, pp_file_size, print_tree_diff
+from utils import TimedMessage, get_s3_client, pp_file_size, print_tree_diff
 
 """
 bitum
@@ -150,20 +149,6 @@ def dirtree_from_db(
             tree_backup[file_path] = DirEntryProps(**file_props)
 
     return set_tree_backup, tree_backup
-
-
-class TimedMessage:
-    def __init__(self, message):
-        self.message = message
-
-    def __enter__(self):
-        print(f'{self.message}', end=' ', flush=True)
-        self.t_begin = time.time()
-
-    def __exit__(self, *exc_details):
-        self.t_end = time.time()
-        self.duration = self.t_end - self.t_begin
-        print(f'Done ({self.duration:.2f}s)')
 
 
 def build(args):

@@ -3,9 +3,24 @@ import configparser
 import os
 import shutil
 import stat
+import time
 
 import boto3
 from constants import CONFIG_PATH
+
+
+class TimedMessage:
+    def __init__(self, message):
+        self.message = message
+
+    def __enter__(self):
+        print(f'{self.message}', end=' ', flush=True)
+        self.t_begin = time.time()
+
+    def __exit__(self, *exc_details):
+        self.t_end = time.time()
+        self.duration = self.t_end - self.t_begin
+        print(f'Done ({self.duration:.2f}s)')
 
 
 def get_s3_client(endpoint_url=None):
