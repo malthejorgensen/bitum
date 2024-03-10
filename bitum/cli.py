@@ -385,7 +385,7 @@ def entry():
 
     args = argparser.parse_args()
 
-    if not os.path.exists(args.dir):
+    if 'dir' in args and not os.path.exists(args.dir):
         print(f'"{args.dir}" does not exist')
         return
 
