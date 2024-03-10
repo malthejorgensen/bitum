@@ -28,12 +28,13 @@ def diff_local(args):
             exclude_pattern=re_exclude,
         )
 
-    set_tree_backup, tree_backup = dirtree_from_db(
-        DATABASE_FILENAME,
-        return_sizes=not args.skip_sizes,
-        return_perms=not args.skip_perms,
-        return_hashes=not args.skip_hashes,
-    )
+    with TimedMessage('Building file list from DB...'):
+        set_tree_backup, tree_backup = dirtree_from_db(
+            DATABASE_FILENAME,
+            return_sizes=not args.skip_sizes,
+            return_perms=not args.skip_perms,
+            return_hashes=not args.skip_hashes,
+        )
 
     print_tree_diff(args, set_tree_disk, tree_disk, set_tree_backup, tree_backup)
 
@@ -51,12 +52,13 @@ def _tree_from_arg(arg, args):
                 exclude_pattern=re_exclude,
             )
     elif arg == 'local-db':
-        set_tree, tree = dirtree_from_db(
-            DATABASE_FILENAME,
-            return_sizes=not args.skip_sizes,
-            return_perms=not args.skip_perms,
-            return_hashes=not args.skip_hashes,
-        )
+        with TimedMessage('Building file list from local DB...'):
+            set_tree, tree = dirtree_from_db(
+                DATABASE_FILENAME,
+                return_sizes=not args.skip_sizes,
+                return_perms=not args.skip_perms,
+                return_hashes=not args.skip_hashes,
+            )
     elif arg == 'remote-db':
         s3_client = get_s3_client(args.endpoint_url)
 
@@ -72,12 +74,13 @@ def _tree_from_arg(arg, args):
                 args.bucket, s3_path, f_db
             )  # , Callback=pbar.update
 
-        set_tree, tree = dirtree_from_db(
-            db_filepath,
-            return_sizes=not args.skip_sizes,
-            return_perms=not args.skip_perms,
-            return_hashes=not args.skip_hashes,
-        )
+        with TimedMessage('Building file list from remote DB...'):
+            set_tree, tree = dirtree_from_db(
+                db_filepath,
+                return_sizes=not args.skip_sizes,
+                return_perms=not args.skip_perms,
+                return_hashes=not args.skip_hashes,
+            )
     elif arg == 'remote-files':
         raise ValueError('Integrity for `remote-files` not currently supported')
 

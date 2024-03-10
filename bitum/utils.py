@@ -270,32 +270,29 @@ def dirtree_from_db(
     return_perms=False,
 ):
     # type: (str, bool, bool, bool) -> tuple[set[DirEntry], dict[str, DirEntryProps]]
-    with TimedMessage('Building file list from backup...'):
-        set_tree_backup = set()
-        tree_backup = {}
-        con = sqlite3.connect(db_filepath)
-        cur = con.cursor()
-        cur.execute(
-            'SELECT bucket, file_path, byte_index, file_size, file_hash, file_perms FROM files'
+    set_tree_backup = set()
+    tree_backup = {}
+    con = sqlite3.connect(db_filepath)
+    cur = con.cursor()
+    cur.execute(
+        'SELECT bucket, file_path, byte_index, file_size, file_hash, file_perms FROM files'
+    )
+    rows = cur.fetchall()
+    con.close()
+    for bucket, file_path, byte_index, file_size, file_hash, file_perms in rows:
+        file_props = {
+            # fmt: off
+            'file_type': 'F',
+            'file_hash': file_hash if return_hashes else None,
+            'file_size': file_size if return_sizes else None,  # and entry_type == 'F'
+            'file_perms': file_perms if return_perms else None,
+            # fmt: on
+        }
+        dir_entry = DirEntry(
+            file_path=file_path,
+            **file_props,
         )
-        rows = cur.fetchall()
-        con.close()
-        for bucket, file_path, byte_index, file_size, file_hash, file_perms in rows:
-            file_props = {
-                # fmt: off
-                'file_type': 'F',
-                'file_hash': file_hash if return_hashes else None,
-                'file_size': file_size
-                if return_sizes
-                else None,  # and entry_type == 'F'
-                'file_perms': file_perms if return_perms else None,
-                # fmt: on
-            }
-            dir_entry = DirEntry(
-                file_path=file_path,
-                **file_props,
-            )
-            set_tree_backup.add(dir_entry)
-            tree_backup[file_path] = DirEntryProps(**file_props)
+        set_tree_backup.add(dir_entry)
+        tree_backup[file_path] = DirEntryProps(**file_props)
 
     return set_tree_backup, tree_backup
