@@ -1,12 +1,23 @@
-from itertools import cycle
+from collections import namedtuple
 import configparser
+import hashlib
+from itertools import cycle
 import os
 import shutil
+import sqlite3
 import stat
 import time
 
 import boto3
+
 from constants import CONFIG_PATH
+
+DirEntry = namedtuple(
+    'DirEntry', ['file_path', 'file_type', 'file_hash', 'file_size', 'file_perms']
+)
+DirEntryProps = namedtuple(
+    'DirEntryProps', ['file_type', 'file_hash', 'file_size', 'file_perms']
+)
 
 
 class TimedMessage:
@@ -173,3 +184,118 @@ def print_tree_diff(args, set_tree1, tree1, set_tree2, tree2):
             print_file_diff(
                 path, '<->', path, width, extras1=file_perms1, extras2=file_perms2
             )
+
+
+# hash_func=hashlib.md5, block_size=2 ** 20
+def file_hash(path, hash_func=hashlib.blake2b, block_size=8192):
+    with open(path, 'rb') as f:
+        hash_sum = hash_func()
+        while True:
+            chunk = f.read(block_size)
+            if not chunk:
+                break
+            hash_sum.update(chunk)
+    return hash_sum.hexdigest()
+    # return hash_sum.digest()
+
+
+def dirtree_from_disk(
+    base_path,
+    return_hashes=False,
+    return_sizes=False,
+    return_perms=False,
+    exclude_pattern=None,
+):
+    # type: (str, bool, bool, bool, re.Pattern | None) -> tuple[set[DirEntry], dict[str, DirEntryProps]]
+    """Build a `set` of tuples for each file under the given filepath
+
+    The tuples are of the form
+
+        (file_path, file_type, file_hash, file_size, file_perms)
+
+    For directories `file_hash` is always `None`.
+
+    From: github.com/malthejorgensen/difftree.
+    """
+    tree = dict()
+    set_dirtree = set()
+    for dirpath, dirnames, filenames in os.walk(base_path):
+        dir_entries = [(f, 'F') for f in filenames] + [(d, 'D') for d in dirnames]
+
+        for entry, entry_type in dir_entries:
+            abs_path = os.path.join(dirpath, entry)
+            rel_path = abs_path[len(base_path) :]
+
+            if exclude_pattern and exclude_pattern.match(rel_path):
+                continue
+
+            if entry_type == 'D':
+                continue
+
+            try:
+                stat = os.stat(abs_path)
+            except FileNotFoundError:
+                # When symlink points to a directory or file that does not exist
+                continue
+            except OSError as err:
+                if err.errno == 62:
+                    # Too many levels of symlinking
+                    continue
+                else:
+                    raise
+
+            file_props = {
+                'file_type': entry_type,
+                'file_hash': file_hash(abs_path) if return_hashes else None,
+                # 'file_size': os.path.getsize(filepath),
+                'file_size': stat.st_size
+                if return_sizes and entry_type == 'F'
+                else None,
+                'file_perms': stat.st_mode if return_perms else None,
+            }
+            dir_entry = DirEntry(
+                file_path=rel_path,
+                **file_props,
+            )
+            set_dirtree.add(dir_entry)
+            tree[rel_path] = DirEntryProps(**file_props)
+
+    return set_dirtree, tree
+
+
+def dirtree_from_db(
+    db_filepath,
+    return_hashes=False,
+    return_sizes=False,
+    return_perms=False,
+):
+    # type: (str, bool, bool, bool) -> tuple[set[DirEntry], dict[str, DirEntryProps]]
+    with TimedMessage('Building file list from backup...'):
+        set_tree_backup = set()
+        tree_backup = {}
+        con = sqlite3.connect(db_filepath)
+        cur = con.cursor()
+        cur.execute(
+            'SELECT bucket, file_path, byte_index, file_size, file_hash, file_perms FROM files'
+        )
+        rows = cur.fetchall()
+        con.close()
+        for bucket, file_path, byte_index, file_size, file_hash, file_perms in rows:
+            file_props = {
+                # fmt: off
+                'file_type': 'F',
+                'file_hash': file_hash if return_hashes else None,
+                'file_size': file_size
+                if return_sizes
+                else None,  # and entry_type == 'F'
+                'file_perms': file_perms if return_perms else None,
+                # fmt: on
+            }
+            dir_entry = DirEntry(
+                file_path=file_path,
+                **file_props,
+            )
+            set_tree_backup.add(dir_entry)
+            tree_backup[file_path] = DirEntryProps(**file_props)
+
+    return set_tree_backup, tree_backup
