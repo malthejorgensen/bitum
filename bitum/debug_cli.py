@@ -196,3 +196,17 @@ def check_sizes(args):
             print(
                 f'{filename} {local_filesize} bytes != {filename} {remote_filesize} bytes'
             )
+
+
+def idempotency_check(args):
+    warning = input(
+        """
+  THIS IDEMPOTENCY CHECK WILL OVERWRITE WHAT\'S CURRENTLY STORED IN YOUR CLOUD STORAGE
+
+  WOULD YOU LIKE TO CONTINUE? (YES/no)
+  Answer must be "YES" in all caps to continue.
+"""
+    )
+    build(args)
+    upload(args)
+    diff_local(args)

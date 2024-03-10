@@ -120,6 +120,7 @@ def build(args):
 
 def download_backup_file(args, db_filepath, filepath):
     # type: (None, str, str) -> None
+    "Downloads a file from inside a .bitumen-file by doing an HTTP Range request"
     s3_client = get_s3_client(args.endpoint_url)
 
     prefix = args.prefix
@@ -194,6 +195,7 @@ def set_disk_file_perms(args, db_filepath, filepath):
 
 
 def download(args, tempdir_path):
+    "Diffs the remote and local tree and downloads files that have changed in remote"
     s3_client = get_s3_client(args.endpoint_url)
 
     prefix = args.prefix
@@ -221,6 +223,16 @@ def download(args, tempdir_path):
 
     diff = set_tree_disk - set_tree_backup
 
+    # if len(set_tree1) == 0 and len(set_tree2) == 0:
+    #     print('Both DISK and BACKUP are empty')
+    #     return
+    # elif len(diff) == 0:
+    #     print('No changes! Backup is up-to-date')
+    #     return
+
+    dir_disk = 'DISK'
+    dir_backup = 'BACKUP'
+
     visited = set()
     for dir_entry in sorted(
         diff,
@@ -233,6 +245,7 @@ def download(args, tempdir_path):
             visited.add(path)
 
         if path in tree_disk and path not in tree_backup:
+            # print_file_diff(path, ' ->', '', width)
             # remove_disk_file()
             pass
         if path not in tree_disk and path in tree_backup:
@@ -247,6 +260,160 @@ def download(args, tempdir_path):
 
         # Always change file perms
         set_disk_file_perms(args, db_filepath, path)
+
+
+def upload_disk_file(args, db_filepath, filepath):
+    # type: (None, str, str) -> None
+    s3_client = get_s3_client(args.endpoint_url)
+
+    prefix = args.prefix
+    if prefix and not prefix.endswith('/'):
+        prefix = f'{prefix}/'
+
+    con = sqlite3.connect(db_filepath)
+    con.row_factory = sqlite3.Row  # Allow accessing results by column name
+    cur = con.cursor()
+    cur.execute(
+        'SELECT bucket, file_path, byte_index, file_size, file_hash, file_perms FROM files WHERE file_path = ?',
+        [filepath],
+    )
+    row = cur.fetchone()
+    cur.execute(
+        'SELECT bucket, file_path, byte_index, file_size, file_hash, file_perms FROM files WHERE bucket = ?',
+        row['bucket'],
+    )
+    rows = cur.fetchall()
+    con.close()
+
+    total_bytes = os.stat(filename).st_size
+    s3_path = f'{prefix}{filename}'
+
+    # FROM: https://stackoverflow.com/a/70263266
+    with open(filename, 'rb') as f_bitumen:
+        with tqdm(
+            total=total_bytes,
+            desc=f'source: s3://{args.bucket}/{s3_path}',
+            bar_format='{percentage:.1f}%|{bar:25} | {rate_fmt} | {desc}',
+            unit='B',
+            unit_scale=True,
+            unit_divisor=1024,
+        ) as pbar:
+            s3_client.upload_fileobj(
+                f_bitumen, args.bucket, s3_path, Callback=pbar.update
+            )
+
+    s3_path = f'{prefix}{row["bucket"]}.bitumen'
+
+    # `filepath` can start with a `/`. When `os.path.join()`
+    # sees this, it ignores all preceding arguments and just starts the
+    # path there, which is not what we want. Therefore the `.lstrip()`.
+    with open(os.path.join(args.dir, filepath.lstrip('/')), 'wb') as f_disk:
+        response = s3_client.get_object(
+            Bucket=args.bucket, Key=s3_path, Range=bytes_range
+        )
+        body = response['Body']
+        # The simplest solution can incur large memory usage for multi GiB-files:
+        #
+        #     f_disk.write(body.read())
+        #
+        # Instead we do a chunked read and write:
+        while True:
+            data = body.read(2**14)  # Read 16 KiB
+            if not data:
+                break
+            f_disk.write(data)
+
+
+def upload(args):
+    s3_client = get_s3_client(args.endpoint_url)
+
+    prefix = args.prefix
+    if prefix and not prefix.endswith('/'):
+        prefix = f'{prefix}/'
+
+    s3_path = f'{prefix}{DATABASE_FILENAME}'
+
+    db_filepath = DATABASE_FILENAME
+    with open(db_filepath, 'wb') as f_db:
+        s3_client.download_fileobj(args.bucket, s3_path, f_db)  # , Callback=pbar.update
+
+    re_exclude = re.compile(args.exclude) if args.exclude else None
+    set_tree_disk, tree_disk = dirtree_from_disk(
+        args.dir,
+        return_sizes=True,  # not args.skip_sizes,
+        return_perms=True,  # not args.skip_perms,
+        return_hashes=True,  # not args.skip_hashes,
+        exclude_pattern=re_exclude,
+    )
+    set_tree_backup, tree_backup = dirtree_from_db(
+        db_filepath,
+        return_sizes=True,  # not args.skip_sizes,
+        return_perms=True,  # not args.skip_perms,
+        return_hashes=True,  # not args.skip_hashes,
+    )
+
+    diff = set_tree_disk - set_tree_backup
+
+    # if len(set_tree1) == 0 and len(set_tree2) == 0:
+    #     print('Both DISK and BACKUP are empty')
+    #     return
+    # elif len(diff) == 0:
+    #     print('No changes! Backup is up-to-date')
+    #     return
+
+    dir_disk = 'DISK'
+    dir_backup = 'BACKUP'
+
+    files_to_upload = set(
+        (e.file_path, e.file_size, e.file_hash) for e in set_tree_disk
+    ) - set((e.file_path, e.file_size, e.file_hash) for e in set_tree_backup)
+
+    prefix = args.prefix
+    if prefix and not prefix.endswith('/'):
+        prefix = f'{prefix}/'
+
+    con = sqlite3.connect(db_filepath)
+    con.row_factory = sqlite3.Row  # Allow accessing results by column name
+    cur = con.cursor()
+    cur.execute(
+        'SELECT bucket, file_path, byte_index, file_size, file_hash, file_perms FROM files WHERE file_path IN ?',
+        [e.file_path for e in files_to_upload],
+    )
+    row = cur.fetchone()
+    cur.execute(
+        'SELECT bucket, file_path, byte_index, file_size, file_hash, file_perms FROM files WHERE bucket = ?',
+        row['bucket'],
+    )
+    rows = cur.fetchall()
+    con.close()
+
+    paths_changed = set()
+    visited = set()
+    for dir_entry in sorted(
+        diff,
+        key=lambda e: e.file_path + '/' if e.file_type == 'D' else e.file_path,
+    ):
+        path = dir_entry.file_path
+        if path in visited:
+            continue
+        else:
+            visited.add(path)
+
+        # For locally changed files that we want to upload, we either need to:
+        # A) store what buckets have changed and rebuild those and upload them
+        # B) store the changed files in a "changelog" bucket and upload that extra bucket (producing some storage overhead)
+        ### THE BELOW IS ALL NONSENSICAL AS IT TRIES TO UPLOAD INDIVIDUAL FILES ###
+        if path not in tree_disk and path in tree_backup:
+            # upload_disk_file(args, db_filepath, path)
+            paths_changed.add(path)
+        elif tree_disk[path].file_size != tree_backup[path].file_size:
+            # upload_disk_file(args, db_filepath, path)
+            paths_changed.add(path)
+        elif tree_disk[path].file_hash != tree_backup[path].file_hash:
+            # upload_disk_file(args, db_filepath, path)
+            paths_changed.add(path)
+        elif tree_disk[path].file_perms != tree_backup[path].file_perms:
+            change_disk_file_perms(args, db_filepath, path)
 
 
 def extract(args):
@@ -273,6 +440,20 @@ def extract(args):
             file_perms,
         ) in rows:
             buckets[bucket_name].append((byte_index, file_path, file_size))
+            # file_props = {
+            #     # fmt: off
+            #     'file_type': 'F',
+            #     'file_hash': file_hash if not args.skip_hashes else None,
+            #     'file_size': file_size if not args.skip_sizes else None, # and entry_type == 'F'
+            #     'file_perms': file_perms if not args.skip_perms else None,
+            #     # fmt: on
+            # }
+            # dir_entry = DirEntry(
+            #     file_path=file_path,
+            #     **file_props,
+            # )
+            # set_tree_backup.add(dir_entry)
+            # tree_backup[file_path] = DirEntryProps(**file_props)
 
     with TimedMessage('Extracting buckets...'):
         print()
@@ -309,11 +490,21 @@ def entry():
         title='command', dest='command', required=True
     )
 
+    upload_cmd = subparsers.add_parser(
+        'upload',
+        help='Upload changed files to the bucket (overwriting files in the bucket)',
+    )
+    upload_cmd.add_argument(
+        '-e',
+        '--exclude',
+        help='Exclude files matching this regex',
+        metavar='exclude_regex',
+    )
     download_cmd = subparsers.add_parser(
         'download',
-        description='Download changed files from the bucket (overwrite local files)',
+        help='Download changed files from the bucket (overwrite local files)',
     )
-    for cmd in [download_cmd]:
+    for cmd in [download_cmd, upload_cmd]:
         cmd.add_argument(
             'dir',
             type=str,
@@ -323,6 +514,7 @@ def entry():
     debug_cmd = subparsers.add_parser(
         'debug',
         description='Access debug commands',
+        help='Run debug commands',
     )
     debug_subcommands = debug_cmd.add_subparsers(
         title='debug_command', dest='debug_command', required=True
@@ -358,6 +550,10 @@ def entry():
         'download-all',
         description=f'Downloads all .bitumen-files at the given prefix in the bucket as well as the the database file ({DATABASE_FILENAME})',
     )
+    idempotency_check_cmd = debug_subcommands.add_parser(
+        'idempotency-check',
+        help='Builds .bitumen-files, uploads them, and then checks against the local filetree',
+    )
     for cmd in [upload_all_cmd, download_all_cmd]:
         pass
 
@@ -388,6 +584,11 @@ def entry():
 
     extract_cmd = subparsers.add_parser('extract')
     extract_cmd.add_argument('dir')
+    # extract_cmd.add_argument(
+    #     '--dry-run',
+    #     action='store_true',
+    #     help='Only list number of files in buckets. Do not build .bitumen-files.',
+    # )
 
     for cmd in [build_cmd, diff_local_cmd, integrity_cmd]:
         # fmt: off
@@ -418,9 +619,13 @@ def entry():
             upload_all(args)
         elif args.debug_command == 'download-all':
             download_all(args)
+        elif args.debug_command == 'idempotency-check':
+            idempotency_check(args)
         else:
             print(f'Unknown debug subcommand {args.debug_command}')
             exit(1)
+    elif args.command == 'upload':
+        upload(args)
     elif args.command == 'download':
         with tempfile.TemporaryDirectory('wb') as tempdir_path:
             download(args, tempdir_path)

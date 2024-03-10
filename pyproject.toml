@@ -25,6 +25,7 @@ bitum = 'bitum.cli:entry'
 
 [tool.ruff]
 # line-length = 120
+namespace-packages = ["bitum"]
 
 [tool.ruff.format]
 quote-style = "single"

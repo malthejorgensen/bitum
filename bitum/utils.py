@@ -186,8 +186,8 @@ def print_tree_diff(args, set_tree1, tree1, set_tree2, tree2):
             )
 
 
-# hash_func=hashlib.md5, block_size=2 ** 20
-def file_hash(path, hash_func=hashlib.blake2b, block_size=8192):
+# def file_hash(path, hash_func=hashlib.blake2b, block_size=8192):
+def file_hash(path, hash_func=hashlib.md5, block_size=2**20):
     with open(path, 'rb') as f:
         hash_sum = hash_func()
         while True:
