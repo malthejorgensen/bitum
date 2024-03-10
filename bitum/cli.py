@@ -128,6 +128,7 @@ def build(args):
 
 def download_backup_file(args, db_filepath, filepath):
     # type: (None, str, str) -> None
+    "Downloads a file from inside a .bitumen-file by doing an HTTP Range request"
     s3_client = get_s3_client(args.endpoint_url)
 
     prefix = args.prefix
