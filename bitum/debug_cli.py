@@ -38,6 +38,61 @@ def diff_local(args):
     print_tree_diff(args, set_tree_disk, tree_disk, set_tree_backup, tree_backup)
 
 
+def _tree_from_arg(arg, args):
+    if arg == 'local-files':
+        re_exclude = re.compile(args.exclude) if args.exclude else None
+
+        with TimedMessage('Building file list from disk...'):
+            set_tree, tree = dirtree_from_disk(
+                args.dir,
+                return_sizes=not args.skip_sizes,
+                return_perms=not args.skip_perms,
+                return_hashes=not args.skip_hashes,
+                exclude_pattern=re_exclude,
+            )
+    elif arg == 'local-db':
+        set_tree, tree = dirtree_from_db(
+            DATABASE_FILENAME,
+            return_sizes=not args.skip_sizes,
+            return_perms=not args.skip_perms,
+            return_hashes=not args.skip_hashes,
+        )
+    elif arg == 'remote-db':
+        s3_client = get_s3_client(args.endpoint_url)
+
+        prefix = args.prefix
+        if prefix and not prefix.endswith('/'):
+            prefix = f'{prefix}/'
+
+        s3_path = f'{prefix}{DATABASE_FILENAME}'
+
+        db_filepath = DATABASE_FILENAME
+        with open(db_filepath, 'wb') as f_db:
+            s3_client.download_fileobj(
+                args.bucket, s3_path, f_db
+            )  # , Callback=pbar.update
+
+        set_tree, tree = dirtree_from_db(
+            db_filepath,
+            return_sizes=not args.skip_sizes,
+            return_perms=not args.skip_perms,
+            return_hashes=not args.skip_hashes,
+        )
+    elif arg == 'remote-files':
+        raise ValueError('Integrity for `remote-files` not currently supported')
+
+    return set_tree, tree
+
+
+def integrity(args):
+    'Check integrity between any of "local-files", "local-db", "remote-db", "remote-files"'
+
+    set_tree_arg1, tree_arg1 = _tree_from_arg(args.arg1, args)
+    set_tree_arg2, tree_arg2 = _tree_from_arg(args.arg2, args)
+
+    print_tree_diff(args, set_tree_arg1, tree_arg1, set_tree_arg2, tree_arg2)
+
+
 def upload_all(args):
     s3_client = get_s3_client(args.endpoint_url)
 
