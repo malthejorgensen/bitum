@@ -7,7 +7,7 @@ import sqlite3
 import tempfile
 
 from constants import BUCKETS, DATABASE_FILENAME
-from debug_cli import download_all, upload_all
+from debug_cli import check_sizes, diff_local, download_all, upload_all
 from utils import (
     TimedMessage,
     dirtree_from_db,
@@ -336,6 +336,10 @@ def entry():
     diff_local_cmd = debug_subcommands.add_parser(
         'diff-local', help=f'Diff tree in local {DATABASE_FILENAME} against local files'
     )
+    check_sizes_cmd = debug_subcommands.add_parser(
+        'check-sizes',
+        description='Checks sizes of .bitumen-files in the current folder against the ones at the given prefix in the bucket',
+    )
     upload_all_cmd = debug_subcommands.add_parser(
         'upload-all',
         description=f'Uploads all .bitumen-files in the current folder to the given prefix in the bucket as well as the database file ({DATABASE_FILENAME})',
@@ -347,7 +351,7 @@ def entry():
     for cmd in [upload_all_cmd, download_all_cmd]:
         pass
 
-    for cmd in [download_cmd, upload_all_cmd, download_all_cmd]:
+    for cmd in [download_cmd, check_sizes_cmd, upload_all_cmd, download_all_cmd]:
         cmd.add_argument(
             '--bucket',
             required=True,
@@ -390,6 +394,8 @@ def entry():
             build(args)
         elif args.debug_command == 'diff-local':
             diff_local(args)
+        elif args.debug_command == 'check-sizes':
+            check_sizes(args)
         elif args.debug_command == 'upload-all':
             upload_all(args)
         elif args.debug_command == 'download-all':

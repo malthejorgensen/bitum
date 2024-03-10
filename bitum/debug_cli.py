@@ -104,3 +104,37 @@ def download_all(args):
                 s3_client.download_fileobj(
                     args.bucket, s3_path, f_bitumen, Callback=pbar.update
                 )
+
+
+def check_sizes(args):
+    s3_client = get_s3_client(args.endpoint_url)
+
+    prefix = args.prefix
+    if prefix and not prefix.endswith('/'):
+        prefix = f'{prefix}/'
+
+    files = []
+    for bucket_name, _, _, _ in BUCKETS:
+        filename = f'{bucket_name}.bitumen'
+        files.append(filename)
+
+    # Always download
+    files.append(DATABASE_FILENAME)
+
+    for filename in files:
+        s3_path = f'{prefix}{filename}'
+
+        try:
+            meta_data = s3_client.head_object(Bucket=args.bucket, Key=s3_path)
+        except:
+            print(f'"{filename}" not found in bucket')
+            continue
+        remote_filesize = int(meta_data.get('ContentLength'))
+
+        stat = os.stat(os.getcwd() + '/' + filename)
+        local_filesize = stat.st_size
+
+        if local_filesize != remote_filesize:
+            print(
+                f'{filename} {local_filesize} bytes != {filename} {remote_filesize} bytes'
+            )
