@@ -194,6 +194,7 @@ def set_disk_file_perms(args, db_filepath, filepath):
 
 
 def download(args, tempdir_path):
+    "Diffs the remote and local tree and downloads files that have changed in remote"
     s3_client = get_s3_client(args.endpoint_url)
 
     prefix = args.prefix
