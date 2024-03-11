@@ -219,7 +219,7 @@ def download(args, tempdir_path):
         return_hashes=True,  # not args.skip_hashes,
     )
 
-    diff = set_tree_disk - set_tree_backup
+    diff = set_tree_disk.symmetric_difference(set_tree_backup)
 
     visited = set()
     for dir_entry in sorted(
