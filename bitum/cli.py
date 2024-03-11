@@ -234,8 +234,8 @@ def download(args, tempdir_path):
 
         if path in tree_disk and path not in tree_backup:
             # remove_disk_file()
-            pass
-        if path not in tree_disk and path in tree_backup:
+            continue
+        elif path not in tree_disk and path in tree_backup:
             download_backup_file(args, db_filepath, path)
         elif tree_disk[path].file_size != tree_backup[path].file_size:
             download_backup_file(args, db_filepath, path)
