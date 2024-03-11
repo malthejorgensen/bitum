@@ -221,6 +221,15 @@ def download(args, tempdir_path):
 
     diff = set_tree_disk.symmetric_difference(set_tree_backup)
 
+    if len(set_tree_disk) == 0 and len(set_tree_backup) == 0:
+        print('Both DISK and BACKUP are empty')
+        return
+    elif len(diff) == 0:
+        print('No changes! Backup is up-to-date')
+        return
+    else:
+        print(f'{len(diff)} files changed.')
+
     visited = set()
     for dir_entry in sorted(
         diff,
