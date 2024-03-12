@@ -290,7 +290,7 @@ def extract(args):
             file_hash,
             file_perms,
         ) in rows:
-            buckets[bucket_name].append((byte_index, file_path, file_size))
+            buckets[bucket_name].append((byte_index, file_path, file_size, file_perms))
 
     with TimedMessage('Extracting buckets...'):
         print()
@@ -300,7 +300,9 @@ def extract(args):
             bytes_written = 0
             current_seek = 0
             with open(f'{bucket_name}.bitumen', 'rb') as f_bitumen:
-                for i, (byte_index, file_path, file_size) in enumerate(files):
+                for i, (byte_index, file_path, file_size, file_perms) in enumerate(
+                    files
+                ):
                     if current_seek != byte_index:
                         breakpoint()
 
@@ -319,6 +321,9 @@ def extract(args):
                     with open(full_path, 'wb') as f_output:
                         current_seek += file_size
                         bytes_written += f_output.write(f_bitumen.read(file_size))
+
+                    # Set file permissions
+                    os.chmod(full_path, file_perms)
 
             print(' ' * len(progress_str) + '\r', end='', flush=True)
         print()
