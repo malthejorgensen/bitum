@@ -1,5 +1,7 @@
 import os
+from pathlib import Path
 import re
+import sqlite3
 
 from tqdm import tqdm
 
@@ -196,3 +198,48 @@ def check_sizes(args):
             print(
                 f'{filename} {local_filesize} bytes != {filename} {remote_filesize} bytes'
             )
+
+
+def extract_single_file(args):
+    # Ensure `/` at beginning of string
+    filepath = '/' + args.filepath.lstrip('/')
+
+    con = sqlite3.connect(DATABASE_FILENAME)
+    cur = con.cursor()
+    cur.execute(
+        """
+        SELECT bucket, file_path, byte_index, file_size, file_hash, file_perms
+        FROM files
+        WHERE file_path = ?
+    """,
+        [filepath],
+    )
+    (
+        bucket_name,
+        file_path,
+        byte_index,
+        file_size,
+        file_hash,
+        file_perms,
+    ) = cur.fetchone()
+    con.close()
+
+    print(
+        f'Extracting "{args.filepath}" from {bucket_name}.bitumen at byte index {byte_index}'
+    )
+    with open(f'{bucket_name}.bitumen', 'rb') as f_bitumen:
+        f_bitumen.seek(byte_index)
+
+        # `file_props.file_path` starts with a `/`. When `os.path.join()`
+        # sees this, it ignores all preceding arguments and just starts the
+        # path there, which is not what we want.
+        full_path = Path(args.filepath)
+        filename = full_path.name
+        # Write file
+        with open(filename, 'wb') as f_output:
+            bytes_written = f_output.write(f_bitumen.read(file_size))
+
+    assert bytes_written == file_size
+
+
+print()

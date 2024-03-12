@@ -8,7 +8,14 @@ import sqlite3
 import tempfile
 
 from constants import BUCKETS, DATABASE_FILENAME
-from debug_cli import check_sizes, diff_local, download_all, integrity, upload_all
+from debug_cli import (
+    check_sizes,
+    diff_local,
+    download_all,
+    extract_single_file,
+    integrity,
+    upload_all,
+)
 from utils import (
     TimedMessage,
     dirtree_from_db,
@@ -366,6 +373,11 @@ def entry():
     integrity_cmd.add_argument(
         'arg2', choices=['local-files', 'local-db', 'remote-db', 'remote-files']
     )
+    extract_single_file_cmd = debug_subcommands.add_parser(
+        'extract-single-file',
+        help='Extracts a single file from .bitumen-files in the current folder',
+    )
+    extract_single_file_cmd.add_argument('filepath', help='Path of the file to extract')
     upload_all_cmd = debug_subcommands.add_parser(
         'upload-all',
         description=f'Uploads all .bitumen-files in the current folder to the given prefix in the bucket as well as the database file ({DATABASE_FILENAME})',
@@ -430,6 +442,8 @@ def entry():
             check_sizes(args)
         elif args.debug_command == 'integrity':
             integrity(args)
+        elif args.debug_command == 'extract-single-file':
+            extract_single_file(args)
         elif args.debug_command == 'upload-all':
             upload_all(args)
         elif args.debug_command == 'download-all':
