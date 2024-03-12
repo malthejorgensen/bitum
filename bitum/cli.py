@@ -2,6 +2,7 @@
 import argparse
 from collections import defaultdict
 import os
+from pathlib import Path
 import re
 import sqlite3
 import tempfile
@@ -303,7 +304,12 @@ def extract(args):
                     # `file_props.file_path` starts with a `/`. When `os.path.join()`
                     # sees this, it ignores all preceding arguments and just starts the
                     # path there, which is not what we want.
-                    with open(os.path.join(args.dir, file_path[1:]), 'wb') as f_output:
+                    full_path = Path(args.dir).joinpath(file_path[1:])
+                    # Ensure that directory exists
+                    parent_dir = full_path.parent
+                    parent_dir.mkdir(parents=True, exist_ok=True)
+                    # Write file
+                    with open(full_path, 'wb') as f_output:
                         current_seek += file_size
                         bytes_written += f_output.write(f_bitumen.read(file_size))
 
