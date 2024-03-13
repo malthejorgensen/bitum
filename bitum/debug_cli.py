@@ -166,6 +166,37 @@ def download_all(args):
                 )
 
 
+def download_one(args):
+    '''Download a single file from the bucket
+
+    Basically the equivalent of `aws s3 cp s3://<BUCKET>/<PREFIX>/<FILENAME>'''
+    s3_client = get_s3_client(args.endpoint_url)
+
+    prefix = args.prefix
+    if prefix and not prefix.endswith('/'):
+        prefix = f'{prefix}/'
+
+    files = [args.filename]
+
+    for filename in files:
+        s3_path = f'{prefix}{filename}'
+
+        meta_data = s3_client.head_object(Bucket=args.bucket, Key=s3_path)
+        total_bytes = int(meta_data.get('ContentLength', 0))
+        with tqdm(
+            total=total_bytes,
+            desc=f'source: s3://{args.bucket}/{s3_path}',
+            bar_format='{percentage:.1f}%|{bar:25} | {rate_fmt} | {desc}',
+            unit='B',
+            unit_scale=True,
+            unit_divisor=1024,
+        ) as pbar:
+            with open(filename, 'wb') as f_bitumen:
+                s3_client.download_fileobj(
+                    args.bucket, s3_path, f_bitumen, Callback=pbar.update
+                )
+
+
 def check_sizes(args):
     s3_client = get_s3_client(args.endpoint_url)
 

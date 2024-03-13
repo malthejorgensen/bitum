@@ -12,6 +12,7 @@ from debug_cli import (
     check_sizes,
     diff_local,
     download_all,
+    download_one,
     extract_single_file,
     integrity,
     upload_all,
@@ -391,6 +392,12 @@ def entry():
         'download-all',
         description=f'Downloads all .bitumen-files at the given prefix in the bucket as well as the the database file ({DATABASE_FILENAME})',
     )
+    download_one_cmd = debug_subcommands.add_parser(
+        'download-one',
+        description='Downloads the given .bitumen-file at the given prefix in the bucket',
+    )
+    download_one_cmd.add_argument('filename', help='Filename of the file to download (including .bitumen file extension)')
+
     for cmd in [upload_all_cmd, download_all_cmd]:
         pass
 
@@ -400,6 +407,7 @@ def entry():
         integrity_cmd,
         upload_all_cmd,
         download_all_cmd,
+        download_one_cmd,
     ]:
         cmd.add_argument(
             '--bucket',
@@ -453,6 +461,8 @@ def entry():
             upload_all(args)
         elif args.debug_command == 'download-all':
             download_all(args)
+        elif args.debug_command == 'download-one':
+            download_one(args)
         else:
             print(f'Unknown debug subcommand {args.debug_command}')
             exit(1)
