@@ -41,3 +41,4 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: "minioadmin"
           AWS_SECRET_ACCESS_KEY: "minio123"
+          AWS_DEFAULT_REGION: "eu-west-2" # Unused, but needed: https://stackoverflow.com/a/68348234/118608
