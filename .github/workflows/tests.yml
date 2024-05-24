@@ -31,12 +31,12 @@ jobs:
           set -x
 
           # Create bucket
-          aws --endpoint-url http://minio:9000/ s3 mb s3://bitum-bucket
+          aws --endpoint-url http://127.0.0.1:9000/ s3 mb s3://bitum-bucket
 
           # Create file with random content
           dd bs=1 count=1000 if=/dev/random > "./random-file.before" 2>/dev/null
-          aws --endpoint-url http://minio:9000/ s3 cp random-file.before s3://bitum-bucket/random-file.after
-          aws --endpoint-url http://minio:9000/ s3 cp s3://bitum-bucket/random-file.after random-file.after
+          aws --endpoint-url http://127.0.0.1:9000/ s3 cp random-file.before s3://bitum-bucket/random-file.after
+          aws --endpoint-url http://127.0.0.1:9000/ s3 cp s3://bitum-bucket/random-file.after random-file.after
           shasum random-file.before random-file.after
         env:
           AWS_ACCESS_KEY_ID: "minioadmin"
