@@ -10,12 +10,15 @@ jobs:
 
     services:
       minio:
-        image: mosuka/minio:latest
+        image: lazybit/minio
         env:
           # MINIO_ROOT_USER: ${{ secrets.MINIO_ROOT_USER }}
           # MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_ROOT_PASSWORD }}
           MINIO_ACCESS_KEY: "minioadmin"
           MINIO_SECRET_KEY: "minio123"
+        volumes:
+          - ${{ github.workspace }}/data:/data
+        options: --name=minio --health-cmd "curl http://localhost:9000/minio/health/live"
         ports:
           - 9000:9000
 
