@@ -39,6 +39,38 @@ It works like this:
 3. Write to database (e.g. SQLite) where each file is stored along with metadata (modified date, MD5/SHA256)
 """
 
+def build_bucket(dir, bucket_name, bucket_file_list):
+    # type: (str, str, list[str]) -> list[tuple[str, str, int, int, str, str]]
+    db_entries = []
+
+    progress_str = ''
+    bytes_written = 0
+    with open(f'{bucket_name}.bitumen', 'wb') as f_bitumen:
+        for i, file_props in enumerate(bucket_file_list):
+            if i % 1000 == 0:
+                progress_str = f'{i}/{len(bucket_file_list)}\r'
+                print(progress_str, end='', flush=True)
+            # `file_props.file_path` starts with a `/`. When `os.path.join()`
+            # sees this, it ignores all preceding arguments and just starts the
+            # path there, which is not what we want. Therefore the `.lstrip()`.
+            with open(
+                os.path.join(dir, file_props.file_path.lstrip('/')), 'rb'
+            ) as f_input:
+                db_entries.append(
+                    (
+                        bucket_name,
+                        file_props.file_path,
+                        bytes_written,
+                        file_props.file_size,
+                        file_props.file_hash,
+                        file_props.file_perms,
+                    )
+                )
+                bytes_written += f_bitumen.write(f_input.read())
+        print(' ' * len(progress_str) + '\r', end='', flush=True)
+
+    return db_entries
+
 
 def build(args):
     re_exclude = re.compile(args.exclude) if args.exclude else None
@@ -87,31 +119,7 @@ def build(args):
     with TimedMessage('Building bitumen files...'):
         print()
         for bucket_name, bucket_max_size, bucket_file_list, bucket_size in BUCKETS:
-            progress_str = ''
-            bytes_written = 0
-            with open(f'{bucket_name}.bitumen', 'wb') as f_bitumen:
-                for i, file_props in enumerate(bucket_file_list):
-                    if i % 1000 == 0:
-                        progress_str = f'{i}/{len(bucket_file_list)}\r'
-                        print(progress_str, end='', flush=True)
-                    # `file_props.file_path` starts with a `/`. When `os.path.join()`
-                    # sees this, it ignores all preceding arguments and just starts the
-                    # path there, which is not what we want. Therefore the `.lstrip()`.
-                    with open(
-                        os.path.join(args.dir, file_props.file_path.lstrip('/')), 'rb'
-                    ) as f_input:
-                        db_entries.append(
-                            (
-                                bucket_name,
-                                file_props.file_path,
-                                bytes_written,
-                                file_props.file_size,
-                                file_props.file_hash,
-                                file_props.file_perms,
-                            )
-                        )
-                        bytes_written += f_bitumen.write(f_input.read())
-            print(' ' * len(progress_str) + '\r', end='', flush=True)
+            db_entries += build_bucket(args.dir, bucket_name, bucket_file_list)
         print()
 
     with TimedMessage('Building bitumen database...'):
