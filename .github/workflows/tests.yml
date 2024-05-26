@@ -23,10 +23,10 @@ jobs:
           - 9000:9000
 
     steps:
-      # - name: Check out repository code
-      #  uses: actions/checkout@v4
+      - name: Check out repository code
+        uses: actions/checkout@v4
 
-      - name: Test minio
+      - name: Check minio
         run: |
           set -x
 
@@ -38,6 +38,15 @@ jobs:
           aws --endpoint-url http://127.0.0.1:9000/ s3 cp random-file.before s3://bitum-bucket/random-file.after
           aws --endpoint-url http://127.0.0.1:9000/ s3 cp s3://bitum-bucket/random-file.after random-file.after
           shasum random-file.before random-file.after
+        env:
+          AWS_ACCESS_KEY_ID: "minioadmin"
+          AWS_SECRET_ACCESS_KEY: "minio123"
+          AWS_DEFAULT_REGION: "eu-west-2" # Unused, but needed: https://stackoverflow.com/a/68348234/118608
+
+      - name: Test bitum
+        run: |
+          pip install boto3
+          test/test_full_cli.sh
         env:
           AWS_ACCESS_KEY_ID: "minioadmin"
           AWS_SECRET_ACCESS_KEY: "minio123"
