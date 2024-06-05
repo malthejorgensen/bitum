@@ -127,7 +127,7 @@ def build(args):
         cur = con.cursor()
         cur.execute('DROP TABLE IF EXISTS files')
         cur.execute(
-            'CREATE TABLE files(bucket, file_path, byte_index, file_size, file_hash, file_perms)'
+            'CREATE TABLE files(bucket, file_path PRIMARY KEY, byte_index, file_size, file_hash, file_perms)'
         )
         cur.executemany('INSERT INTO files VALUES(?, ?, ?, ?, ?, ?)', db_entries)
         con.commit()  # Remember to commit the transaction after executing INSERT.
