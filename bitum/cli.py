@@ -169,7 +169,7 @@ def download_backup_file(args, db_filepath, filepath):
     #
     # Method 3:
     byte_start = row['byte_index']
-    byte_end = row['file_size'] - 1
+    byte_end = byte_start + row['file_size'] - 1
     bytes_range = f'bytes={byte_start}-{byte_end}'
     s3_path = f'{prefix}{row["bucket"]}.bitumen'
 
