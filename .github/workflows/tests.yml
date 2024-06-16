@@ -1,0 +1,44 @@
+name: Tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  end-to-end-test:
+    runs-on: ubuntu-latest
+
+    services:
+      minio:
+        image: lazybit/minio
+        env:
+          # MINIO_ROOT_USER: ${{ secrets.MINIO_ROOT_USER }}
+          # MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_ROOT_PASSWORD }}
+          MINIO_ACCESS_KEY: "minioadmin"
+          MINIO_SECRET_KEY: "minio123"
+        volumes:
+          - ${{ github.workspace }}/data:/data
+        options: --name=minio --health-cmd "curl http://localhost:9000/minio/health/live"
+        ports:
+          - 9000:9000
+
+    steps:
+      # - name: Check out repository code
+      #  uses: actions/checkout@v4
+
+      - name: Test minio
+        run: |
+          set -x
+
+          # Create bucket
+          aws --endpoint-url http://127.0.0.1:9000/ s3 mb s3://bitum-bucket
+
+          # Create file with random content
+          dd bs=1 count=1000 if=/dev/random > "./random-file.before" 2>/dev/null
+          aws --endpoint-url http://127.0.0.1:9000/ s3 cp random-file.before s3://bitum-bucket/random-file.after
+          aws --endpoint-url http://127.0.0.1:9000/ s3 cp s3://bitum-bucket/random-file.after random-file.after
+          shasum random-file.before random-file.after
+        env:
+          AWS_ACCESS_KEY_ID: "minioadmin"
+          AWS_SECRET_ACCESS_KEY: "minio123"
+          AWS_DEFAULT_REGION: "eu-west-2" # Unused, but needed: https://stackoverflow.com/a/68348234/118608
