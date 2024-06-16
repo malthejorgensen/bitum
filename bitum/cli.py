@@ -335,7 +335,8 @@ def download(args, tempdir_path):
             pass
 
         # Always change file perms
-        set_disk_file_perms(args, db_filepath, path)
+        if tree_backup[path].file_perms is not None:
+            set_disk_file_perms(args, db_filepath, path)
 
 
 def upload(args):
