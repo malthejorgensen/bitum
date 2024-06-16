@@ -354,9 +354,14 @@ def upload(args):
     except s3_client.exceptions.ClientError as e:
         if e.response['Error']['Code'] == "404":
             # No DB in S3 -- create an empty DB
-            print(f'No bitum DB was found at "s3://{args.bucket}/{s3_db_filepath}" -- do you want to continue? (Y/n) ', end='', flush=True)
-            if input().lower()[0] != 'y':
-                return
+            if not args.create:
+                print(
+                    f'No bitum DB was found at "s3://{args.bucket}/{s3_db_filepath}" -- do you want to continue? (Y/n) ',
+                    end='',
+                    flush=True,
+                )
+                if input().lower()[0] != 'y':
+                    return
             set_tree_backup, tree_backup = (set(), {})
             con = sqlite3.connect(local_db_filepath)
             con.row_factory = sqlite3.Row  # Allow accessing results by column name
@@ -557,6 +562,11 @@ def entry():
         '--exclude',
         help='Exclude files matching this regex',
         metavar='exclude_regex',
+    )
+    upload_cmd.add_argument(
+        '--create',
+        action='store_true',
+        help="Create `bitumen.sqlite3` if it doesn't exist (bypasses question)",
     )
     download_cmd = subparsers.add_parser(
         'download',
