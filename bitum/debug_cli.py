@@ -3,15 +3,15 @@ from pathlib import Path
 import re
 import sqlite3
 
-from tqdm import tqdm
-
 from constants import BUCKETS, DATABASE_FILENAME
 from utils import (
     TimedMessage,
     dirtree_from_db,
     dirtree_from_disk,
+    download_s3_file,
     get_s3_client,
     print_tree_diff,
+    upload_s3_file,
 )
 
 
@@ -114,22 +114,9 @@ def upload_all(args):
     files.append(DATABASE_FILENAME)
 
     for filename in files:
-        total_bytes = os.stat(filename).st_size
         s3_path = f'{prefix}{filename}'
 
-        # FROM: https://stackoverflow.com/a/70263266
-        with open(filename, 'rb') as f_bitumen:
-            with tqdm(
-                total=total_bytes,
-                desc=f'source: s3://{args.bucket}/{s3_path}',
-                bar_format='{percentage:.1f}%|{bar:25} | {rate_fmt} | {desc}',
-                unit='B',
-                unit_scale=True,
-                unit_divisor=1024,
-            ) as pbar:
-                s3_client.upload_fileobj(
-                    f_bitumen, args.bucket, s3_path, Callback=pbar.update
-                )
+        upload_s3_file(s3_client, args.bucket, s3_path, filename)
 
 
 def download_all(args):
@@ -150,20 +137,7 @@ def download_all(args):
     for filename in files:
         s3_path = f'{prefix}{filename}'
 
-        meta_data = s3_client.head_object(Bucket=args.bucket, Key=s3_path)
-        total_bytes = int(meta_data.get('ContentLength', 0))
-        with tqdm(
-            total=total_bytes,
-            desc=f'source: s3://{args.bucket}/{s3_path}',
-            bar_format='{percentage:.1f}%|{bar:25} | {rate_fmt} | {desc}',
-            unit='B',
-            unit_scale=True,
-            unit_divisor=1024,
-        ) as pbar:
-            with open(filename, 'wb') as f_bitumen:
-                s3_client.download_fileobj(
-                    args.bucket, s3_path, f_bitumen, Callback=pbar.update
-                )
+        download_s3_file(s3_client, args.bucket, s3_path, filename)
 
 
 def check_sizes(args):

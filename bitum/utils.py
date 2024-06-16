@@ -66,6 +66,58 @@ def get_s3_client(endpoint_url=None):
     return s3_client
 
 
+def download_s3_file(s3_client, bucket, s3_path, target_path):
+    try:
+        from tqdm import tqdm
+
+        has_tqdm = True
+    except ImportError:
+        has_tqdm = False
+
+    meta_data = s3_client.head_object(Bucket=bucket, Key=s3_path)
+    total_bytes = int(meta_data.get('ContentLength', 0))
+
+    with open(target_path, 'wb') as f:
+        if has_tqdm:
+            with tqdm(
+                total=total_bytes,
+                desc=f'source: s3://{bucket}/{s3_path}',
+                bar_format='{percentage:.1f}%|{bar:25} | {rate_fmt} | {desc}',
+                unit='B',
+                unit_scale=True,
+                unit_divisor=1024,
+            ) as pbar:
+                s3_client.download_fileobj(bucket, s3_path, f, Callback=pbar.update)
+        else:
+            s3_client.download_fileobj(bucket, s3_path, f)
+
+
+def upload_s3_file(s3_client, bucket, s3_path, source_path):
+    try:
+        from tqdm import tqdm
+
+        has_tqdm = True
+    except ImportError:
+        has_tqdm = False
+
+    total_bytes = os.stat(source_path).st_size
+
+    with open(source_path, 'rb') as f:
+        if has_tqdm:
+            # FROM: https://stackoverflow.com/a/70263266
+            with tqdm(
+                total=total_bytes,
+                desc=f'source: s3://{bucket}/{s3_path}',
+                bar_format='{percentage:.1f}%|{bar:25} | {rate_fmt} | {desc}',
+                unit='B',
+                unit_scale=True,
+                unit_divisor=1024,
+            ) as pbar:
+                s3_client.upload_fileobj(f, bucket, s3_path, Callback=pbar.update)
+        else:
+            s3_client.upload_fileobj(f, bucket, s3_path)
+
+
 def pp_file_size(size_bytes):
     if size_bytes < 2**10:
         value = size_bytes
