@@ -38,7 +38,7 @@ def chunks(l, size):
     # type: (list[T], int) -> list[T]
     i = 0
     while i < len(l):
-        yield l[i:i+size]
+        yield l[i : i + size]
         i += size
 
 
@@ -52,11 +52,28 @@ def get_s3_client(endpoint_url=None):
         )
         exit(1)
 
+    config_dict = config['default'] if 'default' in config else {}
+
+    # Environment variables override config
+    aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID') or config_dict.get(
+        'access_key_id'
+    )
+    aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY') or config_dict.get(
+        'secret_access_key'
+    )
+    region_name = (
+        os.getenv('AWS_REGION')
+        or os.getenv('AWS_DEFAULT_REGION')
+        or config_dict.get('region_name')
+        or None
+    )
+    profile_name = os.getenv('AWS_PROFILE') or config_dict.get('profile_name') or None
+
     session = boto3.session.Session(
-        aws_access_key_id=config['default']['access_key_id'],
-        aws_secret_access_key=config['default']['secret_access_key'],
-        region_name=config['default'].get('region_name', None),
-        profile_name=config['default'].get('profile_name', None),
+        aws_access_key_id=aws_access_key_id,
+        aws_secret_access_key=aws_secret_access_key,
+        region_name=region_name,
+        profile_name=profile_name,
     )
     s3_client = session.client(
         's3',
