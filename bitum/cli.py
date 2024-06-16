@@ -4,7 +4,9 @@ from collections import defaultdict
 import os
 from pathlib import Path
 import re
+import secrets
 import sqlite3
+import string
 import tempfile
 
 from constants import BUCKETS, DATABASE_FILENAME
@@ -17,7 +19,9 @@ from debug_cli import (
     upload_all,
 )
 from utils import (
+    DirEntry,
     TimedMessage,
+    chunks,
     dirtree_from_db,
     dirtree_from_disk,
     get_s3_client,
@@ -132,6 +136,64 @@ def build(args):
         cur.executemany('INSERT INTO files VALUES(?, ?, ?, ?, ?, ?)', db_entries)
         con.commit()  # Remember to commit the transaction after executing INSERT.
         con.close()
+
+def _bucket_name():
+    alphabet = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(alphabet) for i in range(8))
+
+def _build_buckets(dir, files):
+    BUCKET_SIZE = 100 * 2**20 # 100 MiB
+
+    buckets = []
+    with TimedMessage('Building buckets...'):
+        # for (file_path, file_type, file_hash, file_size, file_perms) in set_tree1:
+        current_bucket_size = 0
+        current_bucket = []
+        for file_props in files:
+            if file_props.file_size is None:
+                continue
+
+            if current_bucket_size + file_props.file_size > BUCKET_SIZE:
+                current_bucket_size = 0
+                buckets.append((_bucket_name(), current_bucket, current_bucket_size))
+
+            current_bucket.append(file_props)
+            current_bucket_size += file_props.file_size
+
+        buckets.append((_bucket_name(), current_bucket, current_bucket_size))
+
+    num_files = 0
+    total_size = 0
+    for bucket_name, bucket_file_list, bucket_size in buckets:
+        print(
+            f'{bucket_name}: {len(bucket_file_list)} files ({pp_file_size(bucket_size)})'
+        )
+
+        num_files += len(bucket_file_list)
+        total_size += bucket_size
+    print(f'Total: {num_files} files ({pp_file_size(total_size)})')
+
+    #######################
+    # Build bitumen files #
+    #######################
+    db_entries = []
+    with TimedMessage('Building bitumen files...'):
+        print()
+        for bucket_name, bucket_file_list, bucket_size in buckets:
+            db_entries += build_bucket(dir, bucket_name, bucket_file_list)
+        print()
+
+    with TimedMessage('Building bitumen database...'):
+        con = sqlite3.connect(DATABASE_FILENAME)
+        cur = con.cursor()
+        cur.execute(
+            'CREATE TABLE IF NOT EXISTS files(bucket, file_path PRIMARY KEY, byte_index, file_size, file_hash, file_perms)'
+        )
+        cur.executemany('INSERT OR REPLACE INTO files VALUES(?, ?, ?, ?, ?, ?)', db_entries)
+        con.commit()  # Remember to commit the transaction after executing INSERT.
+        con.close()
+
+    return buckets
 
 
 def download_backup_file(args, db_filepath, filepath):
@@ -276,6 +338,145 @@ def download(args, tempdir_path):
         set_disk_file_perms(args, db_filepath, path)
 
 
+def upload(args):
+    s3_client = get_s3_client(args.endpoint_url)
+
+    prefix = args.prefix
+    if prefix and not prefix.endswith('/'):
+        prefix = f'{prefix}/'
+
+    s3_db_filepath = f'{prefix}{DATABASE_FILENAME}'
+
+    local_db_filepath = DATABASE_FILENAME
+    try:
+        s3_client.head_object(Bucket=args.bucket, Key=s3_db_filepath)
+    except s3_client.exceptions.ClientError as e:
+        if e.response['Error']['Code'] == "404":
+            # No DB in S3 -- create an empty DB
+            print(f'No bitum DB was found at "s3://{args.bucket}/{s3_db_filepath}" -- do you want to continue? (Y/n) ', end='', flush=True)
+            if input().lower()[0] != 'y':
+                return
+            set_tree_backup, tree_backup = (set(), {})
+            con = sqlite3.connect(local_db_filepath)
+            con.row_factory = sqlite3.Row  # Allow accessing results by column name
+            cur = con.cursor()
+            cur.execute(
+                'CREATE TABLE IF NOT EXISTS files(bucket, file_path PRIMARY KEY, byte_index, file_size, file_hash, file_perms)'
+            )
+            con.commit()
+            con.close()
+        else:
+            raise
+    else:
+        # Use DB in S3
+        with open(local_db_filepath, 'wb') as f_db:
+            s3_client.download_fileobj(args.bucket, s3_db_filepath, f_db)
+        set_tree_backup, tree_backup = dirtree_from_db(
+            local_db_filepath,
+            return_sizes=True,  # not args.skip_sizes,
+            # Ignore changes in permissions for now
+            return_perms=False,  # not args.skip_perms,
+            return_hashes=True,  # not args.skip_hashes,
+        )
+
+    re_exclude = re.compile(args.exclude) if args.exclude else None
+    set_tree_disk, tree_disk = dirtree_from_disk(
+        args.dir,
+        return_sizes=True,  # not args.skip_sizes,
+        # Ignore changes in permissions for now
+        return_perms=False,  # not args.skip_perms,
+        return_hashes=True,  # not args.skip_hashes,
+        exclude_pattern=re_exclude,
+    )
+
+    diff = set_tree_disk - set_tree_backup
+
+    if len(set_tree_disk) == 0 and len(set_tree_backup) == 0:
+        print('Both DISK and BACKUP are empty')
+        return
+    elif len(diff) == 0:
+        print('No changes! Backup is up-to-date')
+        return
+
+    dir_disk = 'DISK'
+    dir_backup = 'BACKUP'
+
+    files_to_upload = set_tree_disk - set_tree_backup
+
+    prefix = args.prefix
+    if prefix and not prefix.endswith('/'):
+        prefix = f'{prefix}/'
+
+    con = sqlite3.connect(local_db_filepath)
+    con.row_factory = sqlite3.Row  # Allow accessing results by column name
+    cur = con.cursor()
+    # SQLite IN query parameters: https://stackoverflow.com/questions/1309989/parameter-substitution-for-a-sqlite-in-clause
+    # - Limit of 999 "?"
+    # - You have to make the string of "?, ?, ?, ?, ?" yourself
+    affected_buckets = set()
+    existing_files = set()
+    for files_to_upload_part in chunks(list(files_to_upload), 999):
+        questionmarks = '?,' * (len(files_to_upload_part) - 1) + '?'
+        cur.execute(
+            f'SELECT bucket, file_path, byte_index, file_size, file_hash, file_perms FROM files WHERE file_path IN ({questionmarks})',
+            [e.file_path for e in files_to_upload_part],
+        )
+        rows_buckets = cur.fetchall()
+
+        affected_buckets |= set(row['bucket'] for row in rows_buckets)
+        existing_files |= set(row['bucket'] for row in rows_buckets)
+
+    new_files = [e for e in files_to_upload if e.file_path not in existing_files]
+
+    db_entries = []
+    for bucket in affected_buckets:
+        # Get all files in bucket
+        cur.execute(
+            'SELECT bucket, file_path, byte_index, file_size, file_hash, file_perms FROM files WHERE bucket = ?',
+            [bucket],
+        )
+        rows = cur.fetchall()
+
+        bucket_file_list = [DirEntry(
+            file_path=row['file_path'],
+            file_type='F',
+            file_hash=row['file_hash'],
+            file_size=row['file_size'],
+            file_perms=row['file_perms'],
+        ) for row in rows]
+
+        db_entries += build_bucket(args.dir, bucket, bucket_file_list)
+
+    cur.executemany('INSERT OR REPLACE INTO files VALUES(?, ?, ?, ?, ?, ?)', db_entries)
+    con.commit()  # Remember to commit the transaction after executing INSERT.
+    con.close()
+
+    # Handle new files and insert them into the DB
+    new_buckets = _build_buckets(args.dir, new_files)
+
+    ################
+    # UPLOAD FILES #
+    ################
+    bucket_files_to_upload = []
+    for bucket_name in affected_buckets | set(b[0] for b in new_buckets):
+        filename = f'{bucket_name}.bitumen'
+        bucket_files_to_upload.append(filename)
+
+    # Always upload DB
+    bucket_files_to_upload.append(local_db_filepath)
+
+    for filename in bucket_files_to_upload:
+        total_bytes = os.stat(filename).st_size
+        s3_path = f'{prefix}{filename}'
+
+        # FROM: https://stackoverflow.com/a/70263266
+        with open(filename, 'rb') as f_bitumen:
+            with TimedMessage(f'Uploading "{filename}"...'):
+                s3_client.upload_fileobj(
+                    f_bitumen, args.bucket, s3_path
+                )
+
+
 def extract(args):
     ###################
     # Build file list #
@@ -346,11 +547,21 @@ def entry():
         title='command', dest='command', required=True
     )
 
+    upload_cmd = subparsers.add_parser(
+        'upload',
+        help='Upload changed files to the bucket (overwriting files in the bucket)',
+    )
+    upload_cmd.add_argument(
+        '-e',
+        '--exclude',
+        help='Exclude files matching this regex',
+        metavar='exclude_regex',
+    )
     download_cmd = subparsers.add_parser(
         'download',
         description='Download changed files from the bucket (overwrite local files)',
     )
-    for cmd in [download_cmd]:
+    for cmd in [download_cmd, upload_cmd]:
         cmd.add_argument(
             'dir',
             type=str,
@@ -405,6 +616,7 @@ def entry():
 
     for cmd in [
         download_cmd,
+        upload_cmd,
         check_sizes_cmd,
         integrity_cmd,
         upload_all_cmd,
@@ -465,6 +677,8 @@ def entry():
         else:
             print(f'Unknown debug subcommand {args.debug_command}')
             exit(1)
+    elif args.command == 'upload':
+        upload(args)
     elif args.command == 'download':
         with tempfile.TemporaryDirectory('wb') as tempdir_path:
             download(args, tempdir_path)

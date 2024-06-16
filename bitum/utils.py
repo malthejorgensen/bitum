@@ -34,6 +34,14 @@ class TimedMessage:
         print(f'Done ({self.duration:.2f}s)')
 
 
+def chunks(l, size):
+    # type: (list[T], int) -> list[T]
+    i = 0
+    while i < len(l):
+        yield l[i:i+size]
+        i += size
+
+
 def get_s3_client(endpoint_url=None):
     config = configparser.ConfigParser()
     config.read(os.path.expanduser(CONFIG_PATH))
