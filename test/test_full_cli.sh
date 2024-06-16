@@ -27,7 +27,7 @@ aws --endpoint-url http://127.0.0.1:9000/ s3 mb s3://bitum-bucket || true
 set -x
 
 # Upload files
-python bitum/cli.py upload --endpoint-url http://127.0.0.1:9000/ --bucket bitum-bucket files-random # python cli.py sync
+python bitum/cli.py upload --create --endpoint-url http://127.0.0.1:9000/ --bucket bitum-bucket files-random # python cli.py sync
 
 # Delete files
 /bin/rm -rf files-random/
