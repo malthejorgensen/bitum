@@ -42,6 +42,42 @@ def chunks(l, size):
         i += size
 
 
+def build_bucket(target_dir, dir, bucket_name, bucket_file_list):
+    # type: (str, str, str, list[DirEntry]) -> list[tuple[str, str, int, int, str, str]]
+    db_entries = []
+
+    filename = f'{bucket_name}.bitumen'
+    full_path = os.path.join(target_dir, filename)
+
+    progress_str = ''
+    bytes_written = 0
+    with open(full_path, 'wb') as f_bitumen:
+        for i, file_props in enumerate(bucket_file_list):
+            if i % 1000 == 0:
+                progress_str = f'{i}/{len(bucket_file_list)}\r'
+                print(progress_str, end='', flush=True)
+            # `file_props.file_path` starts with a `/`. When `os.path.join()`
+            # sees this, it ignores all preceding arguments and just starts the
+            # path there, which is not what we want. Therefore the `.lstrip()`.
+            with open(
+                os.path.join(dir, file_props.file_path.lstrip('/')), 'rb'
+            ) as f_input:
+                db_entries.append(
+                    (
+                        bucket_name,
+                        file_props.file_path,
+                        bytes_written,
+                        file_props.file_size,
+                        file_props.file_hash,
+                        file_props.file_perms,
+                    )
+                )
+                bytes_written += f_bitumen.write(f_input.read())
+        print(' ' * len(progress_str) + '\r', end='', flush=True)
+
+    return db_entries
+
+
 def get_s3_client(endpoint_url=None):
     config = configparser.ConfigParser()
     config.read(os.path.expanduser(CONFIG_PATH))

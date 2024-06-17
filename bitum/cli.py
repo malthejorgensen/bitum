@@ -9,8 +9,9 @@ import sqlite3
 import string
 import tempfile
 
-from constants import BUCKETS, DATABASE_FILENAME
+from constants import DATABASE_FILENAME
 from debug_cli import (
+    build,
     check_sizes,
     diff_local,
     download_all,
@@ -21,6 +22,7 @@ from debug_cli import (
 from utils import (
     DirEntry,
     TimedMessage,
+    build_bucket,
     chunks,
     dirtree_from_db,
     dirtree_from_disk,
@@ -43,106 +45,14 @@ It works like this:
 3. Write to database (e.g. SQLite) where each file is stored along with metadata (modified date, MD5/SHA256)
 """
 
-def build_bucket(dir, bucket_name, bucket_file_list):
-    # type: (str, str, list[str]) -> list[tuple[str, str, int, int, str, str]]
-    db_entries = []
-
-    progress_str = ''
-    bytes_written = 0
-    with open(f'{bucket_name}.bitumen', 'wb') as f_bitumen:
-        for i, file_props in enumerate(bucket_file_list):
-            if i % 1000 == 0:
-                progress_str = f'{i}/{len(bucket_file_list)}\r'
-                print(progress_str, end='', flush=True)
-            # `file_props.file_path` starts with a `/`. When `os.path.join()`
-            # sees this, it ignores all preceding arguments and just starts the
-            # path there, which is not what we want. Therefore the `.lstrip()`.
-            with open(
-                os.path.join(dir, file_props.file_path.lstrip('/')), 'rb'
-            ) as f_input:
-                db_entries.append(
-                    (
-                        bucket_name,
-                        file_props.file_path,
-                        bytes_written,
-                        file_props.file_size,
-                        file_props.file_hash,
-                        file_props.file_perms,
-                    )
-                )
-                bytes_written += f_bitumen.write(f_input.read())
-        print(' ' * len(progress_str) + '\r', end='', flush=True)
-
-    return db_entries
-
-
-def build(args):
-    re_exclude = re.compile(args.exclude) if args.exclude else None
-
-    ###################
-    # Build file list #
-    ###################
-    with TimedMessage('Building file list...'):
-        set_tree1, tree1 = dirtree_from_disk(
-            args.dir,
-            return_sizes=not args.skip_sizes,
-            return_perms=not args.skip_perms,
-            return_hashes=not args.skip_hashes,
-            exclude_pattern=re_exclude,
-        )
-
-    with TimedMessage('Building buckets...'):
-        # for (file_path, file_type, file_hash, file_size, file_perms) in set_tree1:
-        for file_props in set_tree1:
-            if file_props.file_size is None:
-                continue
-            for _, bucket_max_size, bucket_file_list, bucket_size in BUCKETS:
-                if file_props.file_size <= bucket_max_size:
-                    bucket_file_list.append(file_props)
-                    bucket_size[0] += file_props.file_size
-                    break
-
-    num_files = 0
-    total_size = 0
-    for bucket_name, bucket_max_size, bucket_file_list, bucket_size in BUCKETS:
-        print(
-            f'{bucket_name}: {len(bucket_file_list)} files ({pp_file_size(bucket_size[0])})'
-        )
-
-        num_files += len(bucket_file_list)
-        total_size += bucket_size[0]
-    print(f'Total: {num_files} files ({pp_file_size(total_size)})')
-
-    if args.dry_run:
-        return 0
-
-    #######################
-    # Build bitumen files #
-    #######################
-    db_entries = []
-    with TimedMessage('Building bitumen files...'):
-        print()
-        for bucket_name, bucket_max_size, bucket_file_list, bucket_size in BUCKETS:
-            db_entries += build_bucket(args.dir, bucket_name, bucket_file_list)
-        print()
-
-    with TimedMessage('Building bitumen database...'):
-        con = sqlite3.connect(DATABASE_FILENAME)
-        cur = con.cursor()
-        cur.execute('DROP TABLE IF EXISTS files')
-        cur.execute(
-            'CREATE TABLE files(bucket, file_path PRIMARY KEY, byte_index, file_size, file_hash, file_perms)'
-        )
-        cur.executemany('INSERT INTO files VALUES(?, ?, ?, ?, ?, ?)', db_entries)
-        con.commit()  # Remember to commit the transaction after executing INSERT.
-        con.close()
 
 def _bucket_name():
     alphabet = string.ascii_letters + string.digits
     return ''.join(secrets.choice(alphabet) for i in range(8))
 
-def _build_buckets(dir, files):
-    BUCKET_SIZE = 100 * 2**20 # 100 MiB
+
+def _build_buckets(target_dir, source_dir, files):
+    BUCKET_SIZE = 100 * 2**20  # 100 MiB
 
     buckets = []
     with TimedMessage('Building buckets...'):
@@ -180,7 +90,9 @@ def _build_buckets(dir, files):
     with TimedMessage('Building bitumen files...'):
         print()
         for bucket_name, bucket_file_list, bucket_size in buckets:
-            db_entries += build_bucket(dir, bucket_name, bucket_file_list)
+            db_entries += build_bucket(
+                target_dir, source_dir, bucket_name, bucket_file_list
+            )
         print()
 
     with TimedMessage('Building bitumen database...'):
@@ -189,7 +101,9 @@ def _build_buckets(dir, files):
         cur.execute(
             'CREATE TABLE IF NOT EXISTS files(bucket, file_path PRIMARY KEY, byte_index, file_size, file_hash, file_perms)'
         )
-        cur.executemany('INSERT OR REPLACE INTO files VALUES(?, ?, ?, ?, ?, ?)', db_entries)
+        cur.executemany(
+            'INSERT OR REPLACE INTO files VALUES(?, ?, ?, ?, ?, ?)', db_entries
+        )
         con.commit()  # Remember to commit the transaction after executing INSERT.
         con.close()
 
@@ -339,7 +253,7 @@ def download(args, tempdir_path):
             set_disk_file_perms(args, db_filepath, path)
 
 
-def upload(args):
+def upload(args, tempdir_path):
     s3_client = get_s3_client(args.endpoint_url)
 
     prefix = args.prefix
@@ -348,11 +262,11 @@ def upload(args):
 
     s3_db_filepath = f'{prefix}{DATABASE_FILENAME}'
 
-    local_db_filepath = DATABASE_FILENAME
+    local_db_filepath = os.path.join(tempdir_path, DATABASE_FILENAME)
     try:
         s3_client.head_object(Bucket=args.bucket, Key=s3_db_filepath)
     except s3_client.exceptions.ClientError as e:
-        if e.response['Error']['Code'] == "404":
+        if e.response['Error']['Code'] == '404':
             # No DB in S3 -- create an empty DB
             if not args.create:
                 print(
@@ -443,22 +357,25 @@ def upload(args):
         )
         rows = cur.fetchall()
 
-        bucket_file_list = [DirEntry(
-            file_path=row['file_path'],
-            file_type='F',
-            file_hash=row['file_hash'],
-            file_size=row['file_size'],
-            file_perms=row['file_perms'],
-        ) for row in rows]
+        bucket_file_list = [
+            DirEntry(
+                file_path=row['file_path'],
+                file_type='F',
+                file_hash=row['file_hash'],
+                file_size=row['file_size'],
+                file_perms=row['file_perms'],
+            )
+            for row in rows
+        ]
 
-        db_entries += build_bucket(args.dir, bucket, bucket_file_list)
+        db_entries += build_bucket(tempdir_path, args.dir, bucket, bucket_file_list)
 
     cur.executemany('INSERT OR REPLACE INTO files VALUES(?, ?, ?, ?, ?, ?)', db_entries)
     con.commit()  # Remember to commit the transaction after executing INSERT.
     con.close()
 
     # Handle new files and insert them into the DB
-    new_buckets = _build_buckets(args.dir, new_files)
+    new_buckets = _build_buckets(tempdir_path, args.dir, new_files)
 
     ################
     # UPLOAD FILES #
@@ -466,21 +383,20 @@ def upload(args):
     bucket_files_to_upload = []
     for bucket_name in affected_buckets | set(b[0] for b in new_buckets):
         filename = f'{bucket_name}.bitumen'
-        bucket_files_to_upload.append(filename)
+        local_path = os.path.join(tempdir_path, filename)
+        bucket_files_to_upload.append((local_path, filename))
 
     # Always upload DB
-    bucket_files_to_upload.append(local_db_filepath)
+    bucket_files_to_upload.append((local_db_filepath, DATABASE_FILENAME))
 
-    for filename in bucket_files_to_upload:
-        total_bytes = os.stat(filename).st_size
+    for local_path, filename in bucket_files_to_upload:
+        total_bytes = os.stat(local_path).st_size
         s3_path = f'{prefix}{filename}'
 
         # FROM: https://stackoverflow.com/a/70263266
-        with open(filename, 'rb') as f_bitumen:
+        with open(local_path, 'rb') as f_bitumen:
             with TimedMessage(f'Uploading "{filename}"...'):
-                s3_client.upload_fileobj(
-                    f_bitumen, args.bucket, s3_path
-                )
+                s3_client.upload_fileobj(f_bitumen, args.bucket, s3_path)
 
 
 def extract(args):
@@ -689,7 +605,8 @@ def entry():
             print(f'Unknown debug subcommand {args.debug_command}')
             exit(1)
     elif args.command == 'upload':
-        upload(args)
+        with tempfile.TemporaryDirectory('wb') as tempdir_path:
+            upload(args, tempdir_path)
     elif args.command == 'download':
         with tempfile.TemporaryDirectory('wb') as tempdir_path:
             download(args, tempdir_path)

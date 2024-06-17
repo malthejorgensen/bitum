@@ -6,10 +6,12 @@ import sqlite3
 from constants import BUCKETS, DATABASE_FILENAME
 from utils import (
     TimedMessage,
+    build_bucket,
     dirtree_from_db,
     dirtree_from_disk,
     download_s3_file,
     get_s3_client,
+    pp_file_size,
     print_tree_diff,
     upload_s3_file,
 )
@@ -87,6 +89,71 @@ def _tree_from_arg(arg, args):
         raise ValueError('Integrity for `remote-files` not currently supported')
 
     return set_tree, tree
+
+
+def build(args):
+    re_exclude = re.compile(args.exclude) if args.exclude else None
+    target_dir = '.'
+
+    ###################
+    # Build file list #
+    ###################
+    with TimedMessage('Building file list...'):
+        set_tree1, tree1 = dirtree_from_disk(
+            args.dir,
+            return_sizes=not args.skip_sizes,
+            return_perms=not args.skip_perms,
+            return_hashes=not args.skip_hashes,
+            exclude_pattern=re_exclude,
+        )
+
+    with TimedMessage('Building buckets...'):
+        # for (file_path, file_type, file_hash, file_size, file_perms) in set_tree1:
+        for file_props in set_tree1:
+            if file_props.file_size is None:
+                continue
+            for _, bucket_max_size, bucket_file_list, bucket_size in BUCKETS:
+                if file_props.file_size <= bucket_max_size:
+                    bucket_file_list.append(file_props)
+                    bucket_size[0] += file_props.file_size
+                    break
+
+    num_files = 0
+    total_size = 0
+    for bucket_name, bucket_max_size, bucket_file_list, bucket_size in BUCKETS:
+        print(
+            f'{bucket_name}: {len(bucket_file_list)} files ({pp_file_size(bucket_size[0])})'
+        )
+
+        num_files += len(bucket_file_list)
+        total_size += bucket_size[0]
+    print(f'Total: {num_files} files ({pp_file_size(total_size)})')
+
+    if args.dry_run:
+        return 0
+
+    #######################
+    # Build bitumen files #
+    #######################
+    db_entries = []
+    with TimedMessage('Building bitumen files...'):
+        print()
+        for bucket_name, bucket_max_size, bucket_file_list, bucket_size in BUCKETS:
+            db_entries += build_bucket(
+                target_dir, args.dir, bucket_name, bucket_file_list
+            )
+        print()
+
+    with TimedMessage('Building bitumen database...'):
+        con = sqlite3.connect(DATABASE_FILENAME)
+        cur = con.cursor()
+        cur.execute('DROP TABLE IF EXISTS files')
+        cur.execute(
+            'CREATE TABLE files(bucket, file_path PRIMARY KEY, byte_index, file_size, file_hash, file_perms)'
+        )
+        cur.executemany('INSERT INTO files VALUES(?, ?, ?, ?, ?, ?)', db_entries)
+        con.commit()  # Remember to commit the transaction after executing INSERT.
+        con.close()
 
 
 def integrity(args):
