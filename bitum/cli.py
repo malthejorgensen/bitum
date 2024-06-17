@@ -9,8 +9,9 @@ import sqlite3
 import string
 import tempfile
 
-from constants import BUCKETS, DATABASE_FILENAME
+from constants import DATABASE_FILENAME
 from debug_cli import (
+    build,
     check_sizes,
     diff_local,
     download_all,
@@ -21,6 +22,7 @@ from debug_cli import (
 from utils import (
     DirEntry,
     TimedMessage,
+    build_bucket,
     chunks,
     dirtree_from_db,
     dirtree_from_disk,
@@ -43,106 +45,14 @@ It works like this:
 3. Write to database (e.g. SQLite) where each file is stored along with metadata (modified date, MD5/SHA256)
 """
 
-def build_bucket(dir, bucket_name, bucket_file_list):
-    # type: (str, str, list[str]) -> list[tuple[str, str, int, int, str, str]]
-    db_entries = []
-
-    progress_str = ''
-    bytes_written = 0
-    with open(f'{bucket_name}.bitumen', 'wb') as f_bitumen:
-        for i, file_props in enumerate(bucket_file_list):
-            if i % 1000 == 0:
-                progress_str = f'{i}/{len(bucket_file_list)}\r'
-                print(progress_str, end='', flush=True)
-            # `file_props.file_path` starts with a `/`. When `os.path.join()`
-            # sees this, it ignores all preceding arguments and just starts the
-            # path there, which is not what we want. Therefore the `.lstrip()`.
-            with open(
-                os.path.join(dir, file_props.file_path.lstrip('/')), 'rb'
-            ) as f_input:
-                db_entries.append(
-                    (
-                        bucket_name,
-                        file_props.file_path,
-                        bytes_written,
-                        file_props.file_size,
-                        file_props.file_hash,
-                        file_props.file_perms,
-                    )
-                )
-                bytes_written += f_bitumen.write(f_input.read())
-        print(' ' * len(progress_str) + '\r', end='', flush=True)
-
-    return db_entries
-
-
-def build(args):
-    re_exclude = re.compile(args.exclude) if args.exclude else None
-
-    ###################
-    # Build file list #
-    ###################
-    with TimedMessage('Building file list...'):
-        set_tree1, tree1 = dirtree_from_disk(
-            args.dir,
-            return_sizes=not args.skip_sizes,
-            return_perms=not args.skip_perms,
-            return_hashes=not args.skip_hashes,
-            exclude_pattern=re_exclude,
-        )
-
-    with TimedMessage('Building buckets...'):
-        # for (file_path, file_type, file_hash, file_size, file_perms) in set_tree1:
-        for file_props in set_tree1:
-            if file_props.file_size is None:
-                continue
-            for _, bucket_max_size, bucket_file_list, bucket_size in BUCKETS:
-                if file_props.file_size <= bucket_max_size:
-                    bucket_file_list.append(file_props)
-                    bucket_size[0] += file_props.file_size
-                    break
-
-    num_files = 0
-    total_size = 0
-    for bucket_name, bucket_max_size, bucket_file_list, bucket_size in BUCKETS:
-        print(
-            f'{bucket_name}: {len(bucket_file_list)} files ({pp_file_size(bucket_size[0])})'
-        )
-
-        num_files += len(bucket_file_list)
-        total_size += bucket_size[0]
-    print(f'Total: {num_files} files ({pp_file_size(total_size)})')
-
-    if args.dry_run:
-        return 0
-
-    #######################
-    # Build bitumen files #
-    #######################
-    db_entries = []
-    with TimedMessage('Building bitumen files...'):
-        print()
-        for bucket_name, bucket_max_size, bucket_file_list, bucket_size in BUCKETS:
-            db_entries += build_bucket(args.dir, bucket_name, bucket_file_list)
-        print()
-
-    with TimedMessage('Building bitumen database...'):
-        con = sqlite3.connect(DATABASE_FILENAME)
-        cur = con.cursor()
-        cur.execute('DROP TABLE IF EXISTS files')
-        cur.execute(
-            'CREATE TABLE files(bucket, file_path PRIMARY KEY, byte_index, file_size, file_hash, file_perms)'
-        )
-        cur.executemany('INSERT INTO files VALUES(?, ?, ?, ?, ?, ?)', db_entries)
-        con.commit()  # Remember to commit the transaction after executing INSERT.
-        con.close()
 
 def _bucket_name():
     alphabet = string.ascii_letters + string.digits
     return ''.join(secrets.choice(alphabet) for i in range(8))
 
-def _build_buckets(dir, files):
-    BUCKET_SIZE = 100 * 2**20 # 100 MiB
+
+def _build_buckets(target_dir, source_dir, files):
+    BUCKET_SIZE = 100 * 2**20  # 100 MiB
 
     buckets = []
     with TimedMessage('Building buckets...'):
