@@ -52,7 +52,7 @@ def _bucket_name():
 
 
 def _build_buckets(dir, files):
-    BUCKET_SIZE = 100 * 2**20 # 100 MiB
+    BUCKET_SIZE = 100 * 2**20  # 100 MiB
 
     buckets = []
     with TimedMessage('Building buckets...'):
