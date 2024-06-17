@@ -99,7 +99,9 @@ def _build_buckets(target_dir, source_dir, files):
         cur.execute(
             'CREATE TABLE IF NOT EXISTS files(bucket, file_path PRIMARY KEY, byte_index, file_size, file_hash, file_perms)'
         )
-        cur.executemany('INSERT OR REPLACE INTO files VALUES(?, ?, ?, ?, ?, ?)', db_entries)
+        cur.executemany(
+            'INSERT OR REPLACE INTO files VALUES(?, ?, ?, ?, ?, ?)', db_entries
+        )
         con.commit()  # Remember to commit the transaction after executing INSERT.
         con.close()
 
@@ -262,7 +264,7 @@ def upload(args):
     try:
         s3_client.head_object(Bucket=args.bucket, Key=s3_db_filepath)
     except s3_client.exceptions.ClientError as e:
-        if e.response['Error']['Code'] == "404":
+        if e.response['Error']['Code'] == '404':
             # No DB in S3 -- create an empty DB
             if not args.create:
                 print(
@@ -353,13 +355,16 @@ def upload(args):
         )
         rows = cur.fetchall()
 
-        bucket_file_list = [DirEntry(
-            file_path=row['file_path'],
-            file_type='F',
-            file_hash=row['file_hash'],
-            file_size=row['file_size'],
-            file_perms=row['file_perms'],
-        ) for row in rows]
+        bucket_file_list = [
+            DirEntry(
+                file_path=row['file_path'],
+                file_type='F',
+                file_hash=row['file_hash'],
+                file_size=row['file_size'],
+                file_perms=row['file_perms'],
+            )
+            for row in rows
+        ]
 
         db_entries += build_bucket(args.dir, bucket, bucket_file_list)
 
@@ -388,9 +393,7 @@ def upload(args):
         # FROM: https://stackoverflow.com/a/70263266
         with open(filename, 'rb') as f_bitumen:
             with TimedMessage(f'Uploading "{filename}"...'):
-                s3_client.upload_fileobj(
-                    f_bitumen, args.bucket, s3_path
-                )
+                s3_client.upload_fileobj(f_bitumen, args.bucket, s3_path)
 
 
 def extract(args):
