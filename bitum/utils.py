@@ -42,14 +42,16 @@ def chunks(l, size):
         i += size
 
 
-def build_bucket(dir, bucket_name, bucket_file_list):
-    # type: (str, str, str, list[str]) -> list[tuple[str, str, int, int, str, str]]
+def build_bucket(target_dir, dir, bucket_name, bucket_file_list):
+    # type: (str, str, str, list[DirEntry]) -> list[tuple[str, str, int, int, str, str]]
     db_entries = []
 
+    filename = f'{bucket_name}.bitumen'
+    full_path = os.path.join(target_dir, filename)
 
     progress_str = ''
     bytes_written = 0
-    with open(f'{bucket_name}.bitumen', 'wb') as f_bitumen:
+    with open(full_path, 'wb') as f_bitumen:
         for i, file_props in enumerate(bucket_file_list):
             if i % 1000 == 0:
                 progress_str = f'{i}/{len(bucket_file_list)}\r'

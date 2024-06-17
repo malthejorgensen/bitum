@@ -90,7 +90,9 @@ def _build_buckets(target_dir, source_dir, files):
     with TimedMessage('Building bitumen files...'):
         print()
         for bucket_name, bucket_file_list, bucket_size in buckets:
-            db_entries += build_bucket(dir, bucket_name, bucket_file_list)
+            db_entries += build_bucket(
+                target_dir, source_dir, bucket_name, bucket_file_list
+            )
         print()
 
     with TimedMessage('Building bitumen database...'):
@@ -251,7 +253,7 @@ def download(args, tempdir_path):
             set_disk_file_perms(args, db_filepath, path)
 
 
-def upload(args):
+def upload(args, tempdir_path):
     s3_client = get_s3_client(args.endpoint_url)
 
     prefix = args.prefix
@@ -260,7 +262,7 @@ def upload(args):
 
     s3_db_filepath = f'{prefix}{DATABASE_FILENAME}'
 
-    local_db_filepath = DATABASE_FILENAME
+    local_db_filepath = os.path.join(tempdir_path, DATABASE_FILENAME)
     try:
         s3_client.head_object(Bucket=args.bucket, Key=s3_db_filepath)
     except s3_client.exceptions.ClientError as e:
@@ -366,14 +368,14 @@ def upload(args):
             for row in rows
         ]
 
-        db_entries += build_bucket(args.dir, bucket, bucket_file_list)
+        db_entries += build_bucket(tempdir_path, args.dir, bucket, bucket_file_list)
 
     cur.executemany('INSERT OR REPLACE INTO files VALUES(?, ?, ?, ?, ?, ?)', db_entries)
     con.commit()  # Remember to commit the transaction after executing INSERT.
     con.close()
 
     # Handle new files and insert them into the DB
-    new_buckets = _build_buckets(args.dir, new_files)
+    new_buckets = _build_buckets(tempdir_path, args.dir, new_files)
 
     ################
     # UPLOAD FILES #
@@ -381,17 +383,18 @@ def upload(args):
     bucket_files_to_upload = []
     for bucket_name in affected_buckets | set(b[0] for b in new_buckets):
         filename = f'{bucket_name}.bitumen'
-        bucket_files_to_upload.append(filename)
+        local_path = os.path.join(tempdir_path, filename)
+        bucket_files_to_upload.append((local_path, filename))
 
     # Always upload DB
-    bucket_files_to_upload.append(local_db_filepath)
+    bucket_files_to_upload.append((local_db_filepath, DATABASE_FILENAME))
 
-    for filename in bucket_files_to_upload:
-        total_bytes = os.stat(filename).st_size
+    for local_path, filename in bucket_files_to_upload:
+        total_bytes = os.stat(local_path).st_size
         s3_path = f'{prefix}{filename}'
 
         # FROM: https://stackoverflow.com/a/70263266
-        with open(filename, 'rb') as f_bitumen:
+        with open(local_path, 'rb') as f_bitumen:
             with TimedMessage(f'Uploading "{filename}"...'):
                 s3_client.upload_fileobj(f_bitumen, args.bucket, s3_path)
 
@@ -602,7 +605,8 @@ def entry():
             print(f'Unknown debug subcommand {args.debug_command}')
             exit(1)
     elif args.command == 'upload':
-        upload(args)
+        with tempfile.TemporaryDirectory('wb') as tempdir_path:
+            upload(args, tempdir_path)
     elif args.command == 'download':
         with tempfile.TemporaryDirectory('wb') as tempdir_path:
             download(args, tempdir_path)

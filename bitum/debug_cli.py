@@ -93,6 +93,7 @@ def _tree_from_arg(arg, args):
 
 def build(args):
     re_exclude = re.compile(args.exclude) if args.exclude else None
+    target_dir = '.'
 
     ###################
     # Build file list #
@@ -138,7 +139,9 @@ def build(args):
     with TimedMessage('Building bitumen files...'):
         print()
         for bucket_name, bucket_max_size, bucket_file_list, bucket_size in BUCKETS:
-            db_entries += build_bucket(args.dir, bucket_name, bucket_file_list)
+            db_entries += build_bucket(
+                target_dir, args.dir, bucket_name, bucket_file_list
+            )
         print()
 
     with TimedMessage('Building bitumen database...'):
